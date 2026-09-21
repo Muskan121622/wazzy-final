@@ -1,6 +1,8 @@
 # Wayzyy TripOS
+>**live Link - https://wazzy-final.vercel.app/**
 
 > **Others generate your itinerary. Wayzyy keeps it alive.**
+> 
 
 Wayzyy TripOS is an adaptive, AI-powered travel operating system for post-booking trip
 management. It generates a living day-by-day itinerary for a Goa trip and then **proactively**
