@@ -1,0 +1,13 @@
+# Secrets & local data — never commit
+.env
+*.db
+*.db-wal
+*.db-shm
+*.log
+data/goa_brain_index.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

@@ -1,26 +1,164 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #050B14;
+  --foreground: #f1f5f9;
+  --accent-primary: #FF6B35;
+  --accent-coral: #FF4E6A;
+  --accent-teal: #14B8A6;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-sora);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-inter), 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ===== PREMIUM SCROLLBAR ===== */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 107, 53, 0.3);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 107, 53, 0.6);
+}
+
+/* ===== NO SCROLLBAR UTILITY ===== */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ===== PREMIUM RANGE SLIDER ===== */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  outline: none;
+  cursor: pointer;
+  position: relative;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #FF6B35, #FF4E6A);
+  cursor: pointer;
+  box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.15), 0 2px 8px rgba(255, 107, 53, 0.4);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 0 6px rgba(255, 107, 53, 0.2), 0 4px 16px rgba(255, 107, 53, 0.5);
+  transform: scale(1.15);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #FF6B35, #FF4E6A);
+  cursor: pointer;
+  box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.15);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+/* ===== DATE INPUT DARK MODE ===== */
+input[type="date"] {
+  color-scheme: dark;
+}
+
+/* ===== SELECTION COLOR ===== */
+::selection {
+  background: rgba(255, 107, 53, 0.3);
+  color: white;
+}
+
+/* ===== GLASS CARD ===== */
+.glass-card {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+.glass-card-elevated {
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* ===== CTA GLOW BUTTON ===== */
+.btn-gradient-glow {
+  background: linear-gradient(135deg, #FF6B35 0%, #FF4E6A 50%, #FF6B35 100%);
+  background-size: 200% 200%;
+  box-shadow: 0 0 30px rgba(255, 107, 53, 0.35), 0 8px 32px rgba(255, 78, 106, 0.25);
+  transition: all 0.3s ease;
+}
+.btn-gradient-glow:hover {
+  background-position: right center;
+  box-shadow: 0 0 50px rgba(255, 107, 53, 0.5), 0 12px 40px rgba(255, 78, 106, 0.35);
+  transform: translateY(-1px);
+}
+
+/* ===== AMBIENT GLOW ===== */
+.glow-orange {
+  box-shadow: 0 0 60px rgba(255, 107, 53, 0.15), 0 0 120px rgba(255, 107, 53, 0.08);
+}
+
+/* ===== TIMELINE CONNECTOR ===== */
+.timeline-line::before {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(to bottom, rgba(255, 107, 53, 0.4), rgba(255, 107, 53, 0.1), transparent);
+}
+
+/* ===== CINEMATIC HERO OVERLAY ===== */
+.hero-overlay {
+  background: linear-gradient(
+    to right,
+    rgba(5, 11, 20, 0.95) 0%,
+    rgba(5, 11, 20, 0.75) 50%,
+    rgba(5, 11, 20, 0.40) 100%
+  ),
+  linear-gradient(
+    to top,
+    rgba(5, 11, 20, 0.90) 0%,
+    transparent 60%
+  );
 }

@@ -1,106 +1,83 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { motion, AnimatePresence } from 'framer-motion';
 import GoogleTranslate from '@/components/GoogleTranslate';
 import {
-  Sparkles,
-  CloudRain,
-  Clock,
-  Home,
-  Shield,
-  Activity,
-  Send,
-  Zap,
-  CheckCircle2,
-  AlertTriangle,
-  Info,
-  MapPin,
-  Utensils,
-  Sun,
-  Coffee,
-  Building2,
-  ChevronRight,
-  RefreshCw,
-  Cpu,
-  X,
-  Plus,
-  Check,
-  Percent,
-  Compass,
-  Car,
-  Navigation,
-  Bell,
-  Mic,
-  MicOff
+  Sparkles, CloudRain, Clock, Home, Shield, Activity, Send, Zap,
+  CheckCircle2, AlertTriangle, Info, MapPin, Utensils, Sun, Coffee,
+  Building2, ChevronRight, RefreshCw, Cpu, X, Plus, Check, Percent,
+  Compass, Car, Navigation, Bell, Mic, MicOff, ArrowRight, Star,
+  CloudSun, ThumbsUp, RotateCcw, Layers
 } from 'lucide-react';
 import { api } from '@/lib/api';
 
+// ─── Animation Variants ───────────────────────────────────────────────────────
+const fadeUp = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.45, ease: 'easeOut' as const } } };
+const slideIn = { hidden: { opacity: 0, x: -16 }, show: { opacity: 1, x: 0, transition: { duration: 0.4, ease: 'easeOut' as const } } };
+const cardHover = {
+  rest: { y: 0 },
+  hover: { y: -3, transition: { duration: 0.25, ease: 'easeOut' as const } },
+};
+
 export default function ConciergePage() {
+  // ─── All existing state (unchanged) ─────────────────────────────────────────
   const [tripData, setTripData] = useState<any>(null);
   const [activeDay, setActiveDay] = useState<number>(1);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Modals & Drawers
   const [showRightNow, setShowRightNow] = useState<boolean>(false);
   const [rightNowCandidates, setRightNowCandidates] = useState<any[]>([]);
+  const [addedCandidates, setAddedCandidates] = useState<Record<number, boolean>>({});
 
   const [showHostTips, setShowHostTips] = useState<boolean>(false);
   const [hostTips, setHostTips] = useState<any[]>([]);
 
   const [showArchitecture, setShowArchitecture] = useState<boolean>(false);
   const [showNotifications, setShowNotifications] = useState<boolean>(false);
+  const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
 
-  // Recovery Proposal Modal State (AI proposes -> User approves!)
   const [incidentResult, setIncidentResult] = useState<any>(null);
   const [showIncidentToast, setShowIncidentToast] = useState<boolean>(false);
 
-  // Traffic Delay Evaluation State
   const [delayResult, setDelayResult] = useState<any>(null);
   const [showDelayModal, setShowDelayModal] = useState<boolean>(false);
 
   const [travelerName, setTravelerName] = useState<string>('Muskan');
   const [tripDestination, setTripDestination] = useState<string>('Goa');
 
-  // Chat Agent State
-  const [chatMessages, setChatMessages] = useState<any[]>([
-    {
-      sender: 'agent',
-      text: "👋 Hi Muskan! Welcome to Wayzyy TripOS. Your living itinerary is active and synced with Superhosts Rahul & Priya. I use OpenStreetMap GIS spatial searching, live weather monitoring, and host recommendations to manage your trip. How can I assist you today?",
-      tool: null,
-    },
-  ]);
+  const [chatMessages, setChatMessages] = useState<any[]>([{
+    sender: 'agent',
+    text: "👋 Hi Muskan! Welcome to Wayzyy TripOS. Your living itinerary is active and synced with Superhosts Rahul & Priya. I use OpenStreetMap GIS spatial searching, live weather monitoring, and host recommendations to manage your trip. How can I assist you today?",
+    tool: null,
+  }]);
   const [inputMsg, setInputMsg] = useState<string>('');
   const [chatLoading, setChatLoading] = useState<boolean>(false);
   const [isListening, setIsListening] = useState<boolean>(false);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
 
+  // ─── Voice Input (unchanged) ─────────────────────────────────────────────────
   const startVoiceInput = () => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert('Voice input is not supported in this browser. Please use Chrome or Edge.');
-      return;
-    }
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) { alert('Voice input is not supported in this browser. Please use Chrome or Edge.'); return; }
     const recognition = new SpeechRecognition();
-    recognition.lang = 'en-IN'; // Indian English — works great with Hindi accents too
+    recognition.lang = 'en-IN';
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
-
     setIsListening(true);
     recognition.start();
-
     recognition.onresult = (event: any) => {
       const transcript = event.results[0][0].transcript;
       setInputMsg(transcript);
       setIsListening(false);
-      // Auto-send after 600ms so user can see what was captured
       setTimeout(() => handleSendMessage(transcript), 600);
     };
-
     recognition.onerror = () => setIsListening(false);
     recognition.onend = () => setIsListening(false);
   };
 
+  // ─── fetchTrip (unchanged) ───────────────────────────────────────────────────
   const fetchTrip = async (silent = false) => {
     try {
       if (!silent) setLoading(true);
@@ -113,28 +90,30 @@ export default function ConciergePage() {
     }
   };
 
+  // ─── Init (unchanged) ────────────────────────────────────────────────────────
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const storedName = localStorage.getItem('wayzyy_user_name');
       const storedDest = localStorage.getItem('wayzyy_destination');
       if (storedName) {
         setTravelerName(storedName);
-        setChatMessages([
-          {
-            sender: 'agent',
-            text: `👋 Hi ${storedName}! Welcome to Wayzyy TripOS. Your living itinerary for **${storedDest || 'Goa'}** is active and synced with Superhosts Rahul & Priya. I use OpenStreetMap GIS spatial searching, live weather monitoring, and host recommendations to manage your trip. How can I assist you today?`,
-            tool: null,
-          },
-        ]);
+        setChatMessages([{
+          sender: 'agent',
+          text: `👋 Hi ${storedName}! Welcome to Wayzyy TripOS. Your living itinerary for **${storedDest || 'Goa'}** is active and synced with Superhosts Rahul & Priya. I use OpenStreetMap GIS spatial searching, live weather monitoring, and host recommendations to manage your trip. How can I assist you today?`,
+          tool: null,
+        }]);
       }
-      if (storedDest) {
-        setTripDestination(storedDest);
-      }
+      if (storedDest) setTripDestination(storedDest);
     }
     fetchTrip();
   }, []);
 
-  // Handle Proactive Weather Incident Simulation
+  // Scroll chat to bottom
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages, chatLoading]);
+
+  // ─── Incident Trigger (unchanged) ────────────────────────────────────────────
   const handleTriggerIncident = async () => {
     try {
       const res = await api.triggerIncident('trip_1', 'HEAVY_RAIN', activeDay, '02:00 PM');
@@ -143,46 +122,31 @@ export default function ConciergePage() {
         res.auto_applied = true;
         setIncidentResult(res);
         setShowIncidentToast(true);
-        fetchTrip(); // reload dashboard
+        fetchTrip();
       } else {
         setIncidentResult(res);
         setShowIncidentToast(true);
       }
-    } catch (err) {
-      console.error('Incident trigger failed', err);
-    }
+    } catch (err) { console.error('Incident trigger failed', err); }
   };
 
-  // Handle Schedule Conflict / Traffic Delay Simulation (d / speed calculation)
+  // ─── Delay Evaluation (unchanged) ────────────────────────────────────────────
   const handleEvaluateDelay = async () => {
     try {
-      // ⏱️ Dynamic delay based on time of day (not hardcoded 45)
       const now = new Date();
       const hourOfDay = now.getHours();
       const dynamicDelay = hourOfDay >= 17 ? 60 : hourOfDay >= 12 ? 45 : 20;
-
-      // 🛰️ Real GPS — ask browser for actual device coordinates
       const getGPS = (): Promise<{ lat: number; lon: number }> =>
         new Promise((resolve) => {
-          if (!navigator.geolocation) {
-            resolve({ lat: 15.5057, lon: 73.9269 }); // Panaji fallback
-            return;
-          }
+          if (!navigator.geolocation) { resolve({ lat: 15.5057, lon: 73.9269 }); return; }
           navigator.geolocation.getCurrentPosition(
             (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-            () => {
-              console.warn('GPS denied — using destination fallback');
-              resolve({ lat: 15.5057, lon: 73.9269 });
-            },
+            () => { console.warn('GPS denied — using destination fallback'); resolve({ lat: 15.5057, lon: 73.9269 }); },
             { timeout: 6000, maximumAge: 30000 }
           );
         });
-
       const { lat, lon } = await getGPS();
-      console.log(`🛰️ GPS: ${lat}, ${lon} | ⏱️ Dynamic Delay: ${dynamicDelay} mins`);
-
       const res = await api.evaluateDelay('trip_1', activeDay, dynamicDelay, lat, lon, 25.0);
-
       if (res.status === 'CONFLICT_DETECTED' && res.proposal?.proposal_id) {
         await api.approveProposal(res.proposal.proposal_id, 'trip_1');
         res.auto_applied = true;
@@ -193,92 +157,99 @@ export default function ConciergePage() {
         setDelayResult(res);
         setShowDelayModal(true);
       }
-    } catch (err) {
-      console.error('Delay evaluation failed', err);
-    }
+    } catch (err) { console.error('Delay evaluation failed', err); }
   };
 
-  // Accept Recovery Proposal
+  // ─── Accept Recovery (unchanged) ─────────────────────────────────────────────
   const handleAcceptRecovery = async (proposalId?: string) => {
     try {
       const targetId = proposalId || (incidentResult?.swapped_details?.[0]?.proposal_id);
-      if (targetId) {
-        await api.approveProposal(targetId, 'trip_1');
-      }
+      if (targetId) await api.approveProposal(targetId, 'trip_1');
       setShowIncidentToast(false);
       setShowDelayModal(false);
-      fetchTrip(); // Refresh itinerary & version logs!
-    } catch (err) {
-      console.error('Failed to approve proposal', err);
-    }
+      fetchTrip();
+    } catch (err) { console.error('Failed to approve proposal', err); }
   };
 
-  // Handle Right Now context engine
+  // ─── Right Now (unchanged) ───────────────────────────────────────────────────
   const handleFetchRightNow = async () => {
     try {
       const res = await api.getRightNow('trip_1', false);
       setRightNowCandidates(res.candidates || []);
       setShowRightNow(true);
-    } catch (err) {
-      console.error('Right now failed', err);
-    }
+    } catch (err) { console.error('Right now failed', err); }
   };
 
-  // Handle Host tips
+  // ─── Add a right-now recommendation to the currently-viewed day ───────────────
+  const handleAddRecommendation = async (c: any, idx: number) => {
+    const placeId = c.place?.id || c.place_id || c.id;
+    if (!placeId || addedCandidates[idx]) return;
+    try {
+      const res = await api.addActivity(placeId, activeDay, 'trip_1');
+      if (res?.status === 'SUCCESS') {
+        setAddedCandidates((prev) => ({ ...prev, [idx]: true }));
+        await fetchTrip(true);
+        setTimeout(() => {
+          setAddedCandidates((prev) => { const n = { ...prev }; delete n[idx]; return n; });
+        }, 2600);
+      } else {
+        console.error('Add activity rejected', res);
+      }
+    } catch (err) { console.error('Add activity failed', err); }
+  };
+
+  // ─── Host Tips (unchanged) ───────────────────────────────────────────────────
   const handleFetchHostTips = async () => {
     try {
       const res = await api.getHostTips('trip_1');
       setHostTips(res.host_tips || []);
       setShowHostTips(true);
-    } catch (err) {
-      console.error('Host tips failed', err);
-    }
+    } catch (err) { console.error('Host tips failed', err); }
   };
 
-  // Handle Chat submit
+  // ─── Chat (unchanged) ────────────────────────────────────────────────────────
   const handleSendMessage = async (customMsg?: string) => {
     const msgToSend = customMsg || inputMsg;
     if (!msgToSend.trim()) return;
-
     const newUserMsg = { sender: 'user', text: msgToSend };
     setChatMessages((prev) => [...prev, newUserMsg]);
     if (!customMsg) setInputMsg('');
     setChatLoading(true);
-
     try {
-      // Build conversation history for agent memory (last 10 messages, excluding welcome)
       const historyForApi = chatMessages
         .filter((m) => m.sender === 'user' || m.sender === 'agent')
         .slice(-10)
         .map((m) => ({ role: m.sender === 'user' ? 'user' : 'assistant', content: m.text }));
-
       const res = await api.chatWithAgent(msgToSend, 'trip_1', tripDestination, historyForApi);
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          sender: 'agent',
-          text: res.reply,
-          tool: res.tool_executed ? { name: res.tool_executed, args: res.tool_args } : null,
-        },
-      ]);
-      fetchTrip(true); // Silent refresh if itinerary changed!
+      setChatMessages((prev) => [...prev, {
+        sender: 'agent',
+        text: res.reply,
+        tool: res.tool_executed ? { name: res.tool_executed, args: res.tool_args } : null,
+      }]);
+      fetchTrip(true);
     } catch (err) {
-      setChatMessages((prev) => [
-        ...prev,
-        { sender: 'agent', text: 'Error connecting to TripOS Agent.', tool: null },
-      ]);
-    } finally {
-      setChatLoading(false);
-    }
+      setChatMessages((prev) => [...prev, { sender: 'agent', text: 'Error connecting to TripOS Agent.', tool: null }]);
+    } finally { setChatLoading(false); }
   };
 
+  // ─── Loading State ───────────────────────────────────────────────────────────
   if (loading || !tripData) {
     return (
-      <div className="min-h-screen bg-[#0b0b0c] text-slate-100 flex items-center justify-center">
-        <div className="text-center">
-          <RefreshCw className="w-8 h-8 text-[#FF6B00] animate-spin mx-auto mb-3" />
-          <p className="text-slate-400 text-sm font-medium">Initializing Wayzyy TripOS Engine...</p>
-        </div>
+      <div className="min-h-screen bg-[#050B14] flex items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="text-center"
+        >
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5 relative"
+            style={{ background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.25)' }}>
+            <RefreshCw className="w-7 h-7 text-orange-400 animate-spin" />
+            <div className="absolute inset-0 rounded-2xl animate-ping opacity-30"
+              style={{ background: 'rgba(255,107,53,0.1)' }} />
+          </div>
+          <p className="text-white font-semibold text-sm" style={{ fontFamily: 'var(--font-sora)' }}>Initializing Wayzyy TripOS Engine...</p>
+          <p className="text-slate-500 text-xs mt-1">Syncing GIS data & live itinerary</p>
+        </motion.div>
       </div>
     );
   }
@@ -292,427 +263,526 @@ export default function ConciergePage() {
     return pA - pB;
   });
 
+  // ─── RENDER ──────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#0b0b0c] text-slate-100 font-sans selection:bg-[#FF6B00] selection:text-white">
-      {/* Official Wayzyy Header Bar */}
-      <header className="border-b border-white/10 bg-[#0b0b0c]/90 backdrop-blur sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link href="/" className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#FF6B00] flex items-center justify-center font-extrabold text-white text-xl shadow-lg shadow-[#FF6B00]/30 border border-orange-400/40">
-                <span className="leading-none text-slate-950 font-black">W</span>
-              </div>
-              <div>
-                <span className="font-extrabold text-xl tracking-tight text-white font-display">Wayzyy <span className="text-[#FF6B00] font-medium">TripOS</span></span>
-                <p className="text-[10px] text-slate-400 hidden sm:block">0% Commission · Direct Host Connection</p>
-              </div>
-            </Link>
+    <div className="min-h-screen bg-[#050B14] text-slate-100 font-sans selection:bg-orange-500/30 selection:text-white">
 
-            <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full bg-[#141518] text-slate-300 border border-white/10">
-              <MapPin className="w-3.5 h-3.5 text-[#FF6B00]" /> {trip.destination || 'Goa'} (OSM GIS)
+      {/* ══ FULL PAGE BACKGROUND (bright beach, same as front page) ═══════════ */}
+      <div className="fixed inset-0 z-0 pointer-events-none">
+        <img
+          src="https://images.unsplash.com/photo-1512343879784-a960bf40e7f2?w=1600&q=85"
+          alt="Goa beach"
+          className="w-full h-full object-cover object-center opacity-100"
+        />
+        {/* Soft left gradient for text readability */}
+        <div className="absolute inset-0" style={{
+          background: 'linear-gradient(90deg, rgba(5,11,20,0.7) 0%, rgba(5,11,20,0.1) 45%, transparent 100%)',
+        }} />
+        {/* Soft bottom gradient for card contrast */}
+        <div className="absolute inset-0" style={{
+          background: 'linear-gradient(to top, rgba(5,11,20,0.85) 0%, rgba(5,11,20,0.2) 40%, transparent 100%)',
+        }} />
+      </div>
+
+      {/* ══ HEADER ═════════════════════════════════════════════════════════════ */}
+      <header className="sticky top-0 z-40 border-b border-white/8"
+        style={{ background: 'rgba(5,11,20,0.88)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)' }}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-[64px] flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4 min-w-0">
+            <Link href="/" className="flex items-center gap-2.5 shrink-0">
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center font-black text-[#050B14] text-base"
+                style={{ background: 'linear-gradient(135deg, #FF6B35, #FF4E6A)', boxShadow: '0 3px 12px rgba(255,107,53,0.4)' }}>
+                W
+              </div>
+              <span className="font-bold text-lg text-white tracking-tight hidden sm:block" style={{ fontFamily: 'var(--font-sora)' }}>
+                Wayzyy <span style={{ color: '#FF6B35' }}>TripOS</span>
+              </span>
+            </Link>
+            <span className="hidden md:flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-full shrink-0"
+              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)', color: '#94A3B8' }}>
+              <MapPin className="w-3 h-3 text-orange-400" />
+              {trip.destination || 'Goa'} · OSM GIS
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold px-3 py-1 rounded-full bg-[#FF6B00]/10 text-[#FF6B00] border border-[#FF6B00]/30 hidden md:inline-flex">
-              Version v{trip.current_version} ⚡ Living Plan
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="hidden md:flex text-[11px] font-bold px-2.5 py-1 rounded-full"
+              style={{ background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.25)', color: '#FF8A65' }}>
+              v{trip.current_version} ⚡ Living
             </span>
-
             <GoogleTranslate />
-
-            <Link
-              href="/"
-              className="px-3.5 py-1.5 text-xs font-bold rounded-full bg-[#FF6B00] hover:bg-[#FF6B00]/90 text-white transition-colors flex items-center gap-1.5 shadow-sm"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-white" /> Create / Generate Trip
+            <Link href="/" className="hidden sm:flex px-3 py-1.5 text-[11px] font-bold rounded-full items-center gap-1.5 text-white transition-all"
+              style={{ background: 'linear-gradient(135deg, #FF6B35, #FF4E6A)', boxShadow: '0 3px 12px rgba(255,107,53,0.3)' }}>
+              <Sparkles className="w-3 h-3" /> New Trip
             </Link>
-
-            <button
-              onClick={() => setShowArchitecture(true)}
-              className="px-3.5 py-1.5 text-xs font-bold rounded-full bg-[#141518] hover:bg-white/10 text-slate-200 border border-white/10 transition-colors flex items-center gap-1.5 shadow-sm hidden sm:flex"
-            >
-              <Cpu className="w-3.5 h-3.5 text-teal-400" /> Architecture Deep-Dive
+            <button onClick={() => setShowArchitecture(true)}
+              className="hidden sm:flex px-3 py-1.5 text-[11px] font-bold rounded-full items-center gap-1.5 text-slate-300 transition-all"
+              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)' }}>
+              <Cpu className="w-3 h-3 text-teal-400" /> Architecture
             </button>
 
-            {/* Notifications Bell Dropdown */}
+            {/* Notifications */}
             <div className="relative">
-              <button
-                onClick={() => setShowNotifications(!showNotifications)}
-                className="relative p-2 rounded-full bg-[#141518] hover:bg-white/10 text-slate-200 border border-white/10 transition-colors flex items-center justify-center shadow-sm"
-              >
-                <Bell className="w-4 h-4 text-white" />
+              <button onClick={() => setShowNotifications(!showNotifications)}
+                className="relative p-2 rounded-xl transition-colors"
+                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)' }}>
+                <Bell className="w-4 h-4 text-slate-300" />
                 {tripData.audit_actions?.length > 0 && (
-                  <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-[#0b0b0c] animate-pulse"></span>
+                  <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-[#050B14] animate-pulse" />
                 )}
               </button>
-
-              {showNotifications && (
-                <div className="absolute right-0 mt-2 w-80 bg-[#121316] border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
-                  <div className="px-4 py-3 border-b border-white/10 bg-[#0b0b0c]/50 flex justify-between items-center">
-                    <h4 className="font-bold text-white text-sm">Trip Notifications</h4>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#FF6B00]/20 text-[#FF6B00]">
-                      {tripData.audit_actions?.length || 0} New
-                    </span>
-                  </div>
-                  <div className="max-h-80 overflow-y-auto">
-                    {tripData.audit_actions?.length === 0 ? (
-                      <p className="text-xs text-slate-500 p-4 text-center">No recent notifications.</p>
-                    ) : (
-                      <div className="divide-y divide-white/5">
-                        {tripData.audit_actions?.map((action: any, idx: number) => (
-                          <div key={idx} className="p-3.5 hover:bg-white/5 transition-colors">
-                            <div className="flex items-start gap-3">
-                              <div className="w-8 h-8 rounded-full bg-[#FF6B00]/10 flex items-center justify-center shrink-0">
-                                {action.action === 'TRIP_INSIGHT' ? (
-                                  <Cpu className="w-4 h-4 text-indigo-400" />
-                                ) : (
-                                  <Zap className="w-4 h-4 text-[#FF6B00]" />
-                                )}
-                              </div>
-                              <div>
-                                <span className="text-[10px] font-bold text-[#FF6B00] mb-0.5 block">
-                                  {action.action.replace(/_/g, ' ')}
-                                </span>
-                                <p className="text-xs text-slate-300 leading-relaxed">
-                                  {action.reason}
-                                </p>
-                              </div>
-                            </div>
+              <AnimatePresence>
+                {showNotifications && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                    transition={{ duration: 0.2 }}
+                    className="absolute right-0 mt-2 w-80 rounded-2xl shadow-2xl z-50 overflow-hidden"
+                    style={{ background: 'rgba(7,17,31,0.98)', border: '1px solid rgba(255,255,255,0.1)', backdropFilter: 'blur(20px)' }}
+                  >
+                    <div className="px-4 py-3 border-b border-white/6 flex justify-between items-center"
+                      style={{ background: 'rgba(255,255,255,0.03)' }}>
+                      <h4 className="font-bold text-white text-sm">Trip Notifications</h4>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-bold"
+                        style={{ background: 'rgba(255,107,53,0.15)', color: '#FF8A65' }}>
+                        {tripData.audit_actions?.length || 0} New
+                      </span>
+                    </div>
+                    <div className="max-h-72 overflow-y-auto divide-y divide-white/5">
+                      {!tripData.audit_actions?.length ? (
+                        <p className="text-xs text-slate-500 p-4 text-center">No recent notifications.</p>
+                      ) : tripData.audit_actions?.map((action: any, idx: number) => (
+                        <div key={idx} className="p-3.5 flex items-start gap-3 hover:bg-white/3 transition-colors">
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                            style={{ background: action.action === 'TRIP_INSIGHT' ? 'rgba(99,102,241,0.15)' : 'rgba(255,107,53,0.12)' }}>
+                            {action.action === 'TRIP_INSIGHT'
+                              ? <Cpu className="w-3.5 h-3.5 text-indigo-400" />
+                              : <Zap className="w-3.5 h-3.5 text-orange-400" />}
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+                          <div>
+                            <span className="text-[10px] font-bold block mb-0.5" style={{ color: '#FF8A65' }}>
+                              {action.action.replace(/_/g, ' ')}
+                            </span>
+                            <p className="text-xs text-slate-300 leading-relaxed">{action.reason}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Hero Interactive Demo Control Bar */}
-      <div className="bg-gradient-to-r from-[#121316] via-[#16181F] to-[#24130A] border-b border-white/10 py-3.5 px-4 sm:px-6">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      {/* ══ DEMO TRIGGER BAR ═══════════════════════════════════════════════════ */}
+      <div className="relative z-10 border-b border-white/6"
+        style={{ background: 'rgba(5,11,20,0.35)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-extrabold text-[#FF6B00] uppercase tracking-wider">Demo Triggers:</span>
-            <span className="text-xs text-slate-400">Click to test TripOS Engines live!</span>
+            <span className="text-[11px] font-bold text-orange-400 uppercase tracking-widest">Demo Triggers</span>
+            <span className="text-[11px] text-slate-500">· Click to test TripOS Engines live</span>
           </div>
-
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={handleTriggerIncident}
-              className="px-3 py-1.5 rounded-full bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
-            >
-              <CloudRain className="w-3.5 h-3.5 text-rose-400 animate-pulse" /> ⚡ Rain Incident (2 PM)
-            </button>
-
-            <button
-              onClick={handleEvaluateDelay}
-              className="px-3 py-1.5 rounded-full bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
-            >
-              <Car className="w-3.5 h-3.5 text-indigo-400" /> 🚗 Traffic Delay 45m (d / speed Matrix)
-            </button>
-
-            <button
-              onClick={handleFetchRightNow}
-              className="px-3 py-1.5 rounded-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-400" /> ✨ What to do right now?
-            </button>
-
-            <button
-              onClick={handleFetchHostTips}
-              className="px-3 py-1.5 rounded-full bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 border border-teal-500/30 text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
-            >
-              <Home className="w-3.5 h-3.5 text-teal-400" /> 🏠 Direct Host Tips
-            </button>
+            {[
+              { label: 'Rain Incident (2 PM)', onClick: handleTriggerIncident, rgb: '244,63,94', textColor: '#FDA4AF', icon: CloudRain },
+              { label: 'Traffic Delay (d/v Matrix)', onClick: handleEvaluateDelay, rgb: '99,102,241', textColor: '#A5B4FC', icon: Car },
+              { label: 'What to do right now?', onClick: handleFetchRightNow, rgb: '245,158,11', textColor: '#FCD34D', icon: Zap },
+              { label: 'Direct Host Tips', onClick: handleFetchHostTips, rgb: '20,184,166', textColor: '#5EEAD4', icon: Home },
+            ].map(({ label, onClick, rgb, textColor, icon: Icon }) => (
+              <motion.button
+                key={label}
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={onClick}
+                className="px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all"
+                style={{
+                  background: `rgba(${rgb},0.08)`,
+                  border: `1px solid rgba(${rgb},0.25)`,
+                  color: textColor,
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.background = `rgba(${rgb},0.18)`;
+                  e.currentTarget.style.borderColor = `rgba(${rgb},0.45)`;
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.background = `rgba(${rgb},0.08)`;
+                  e.currentTarget.style.borderColor = `rgba(${rgb},0.25)`;
+                }}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                {label}
+              </motion.button>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* Main Grid Layout */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 grid lg:grid-cols-12 gap-8">
+      {/* ══ MAIN GRID ══════════════════════════════════════════════════════════ */}
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-8">
 
-        {/* LEFT COLUMN: Living Itinerary & Trip Status (7 cols) */}
-        <div className="lg:col-span-7 space-y-6">
+        {/* ── TWO-COLUMN: itinerary left · health/insights sidebar right ─── */}
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-6 items-start pb-20">
 
-          {/* Trip Health / Status Widget */}
-          <div className="bg-[#121316] border border-white/10 rounded-2xl p-5 shadow-xl">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Activity className="w-5 h-5 text-[#FF6B00]" />
-                <h3 className="font-bold text-white text-base font-display">Trip Health & Constraints Index</h3>
+          {/* Right sidebar (stacks on top for mobile) */}
+          <aside className="space-y-6 lg:order-2 lg:sticky lg:top-24 self-start">
+
+          {/* Trip Health Widget */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
+            className="rounded-2xl p-5"
+            style={{ background: 'rgba(5,11,20,0.82)', border: '1px solid rgba(255,255,255,0.1)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', boxShadow: '0 8px 32px rgba(0,0,0,0.45)' }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center"
+                  style={{ background: 'rgba(255,107,53,0.12)', border: '1px solid rgba(255,107,53,0.25)' }}>
+                  <Activity className="w-4 h-4 text-orange-400" />
+                </div>
+                <h3 className="font-bold text-white text-sm" style={{ fontFamily: 'var(--font-sora)' }}>Trip Health & Constraints Index</h3>
               </div>
-              <span className="text-sm font-extrabold px-3 py-0.5 rounded-full bg-[#FF6B00]/20 text-[#FF6B00] border border-[#FF6B00]/30">
+              <span className="text-sm font-bold px-3 py-1 rounded-full"
+                style={{ background: 'rgba(255,107,53,0.12)', border: '1px solid rgba(255,107,53,0.25)', color: '#FF8A65' }}>
                 {trip.health_score} / 100 · GOOD
               </span>
             </div>
 
-            {/* Health Progress Gauge */}
-            <div className="w-full h-3 bg-[#0b0b0c] rounded-full overflow-hidden mb-3.5 p-0.5 border border-white/10">
-              <div
-                className="h-full bg-gradient-to-r from-amber-500 to-[#FF6B00] rounded-full transition-all duration-500 shadow-lg shadow-[#FF6B00]/30"
-                style={{ width: `${trip.health_score}%` }}
+            {/* Health bar */}
+            <div className="h-2 rounded-full overflow-hidden mb-4"
+              style={{ background: 'rgba(255,255,255,0.06)' }}>
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${trip.health_score}%` }}
+                transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1], delay: 0.3 }}
+                className="h-full rounded-full"
+                style={{ background: 'linear-gradient(90deg, #FF6B35, #FF4E6A)', boxShadow: '0 0 12px rgba(255,107,53,0.4)' }}
               />
             </div>
 
-            {/* Constraint Badges */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-              <div className="bg-[#0b0b0c] p-2.5 rounded-xl border border-white/10">
-                <span className="text-slate-400 block mb-0.5">Quietness Preference</span>
-                <span className="font-bold text-[#FF6B00]">{Math.round((preferences.quietness || 0.9) * 100)}% Quiet</span>
-              </div>
-              <div className="bg-[#0b0b0c] p-2.5 rounded-xl border border-white/10">
-                <span className="text-slate-400 block mb-0.5">Budget Limit</span>
-                <span className="font-bold text-slate-200">≤ ₹{preferences.budget_max}/act</span>
-              </div>
-              <div className="bg-[#0b0b0c] p-2.5 rounded-xl border border-white/10">
-                <span className="text-slate-400 block mb-0.5">GIS Proximity</span>
-                <span className="font-bold text-teal-400">OpenStreetMap Haversine</span>
-              </div>
-              <div className="bg-[#0b0b0c] p-2.5 rounded-xl border border-white/10">
-                <span className="text-slate-400 block mb-0.5">Host Direct Link</span>
-                <span className="font-bold text-emerald-400">Rahul & Priya (0% Fee)</span>
-              </div>
-            </div>
-          </div>
-
-          {/* TripOS Engine Insights (Dynamic Architecture Decisions) */}
-          {tripData.audit_actions?.filter((a: any) => a.action === 'TRIP_INSIGHT').length > 0 && (
-            <div className="bg-[#121316] border border-indigo-500/30 rounded-2xl p-5 shadow-xl">
-              <div className="flex items-center gap-2 mb-3">
-                <Cpu className="w-4 h-4 text-indigo-400" />
-                <h3 className="font-bold text-white text-sm font-display">TripOS Optimizer Insights</h3>
-              </div>
-              <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
-                {tripData.audit_actions.filter((a: any) => a.action === 'TRIP_INSIGHT').map((insight: any) => (
-                  <div key={insight.id} className="bg-indigo-950/20 border border-indigo-500/20 p-3 rounded-xl flex items-start gap-3">
-                    <span className="text-lg">🧠</span>
-                    <p className="text-xs text-indigo-200 leading-relaxed font-medium">
-                      {insight.reason}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Living Itinerary Timeline */}
-          <div className="bg-[#121316] border border-white/10 rounded-2xl p-6 shadow-xl">
-
-            {/* Day Selector Bar */}
-            <div className="flex items-center justify-between mb-6 pb-4 border-b border-white/10">
-              <div>
-                <h2 className="text-xl font-bold text-white flex items-center gap-2 font-display">
-                  Living Itinerary <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[#FF6B00]/10 text-[#FF6B00] border border-[#FF6B00]/20">Day {activeDay} of {Object.keys(itinerary_days).length}</span>
-                </h2>
-                <p className="text-slate-400 text-xs mt-0.5">Others generate static plans. Wayzyy keeps your trip working when reality changes.</p>
-              </div>
-
-              <div className="flex gap-1.5 bg-[#0b0b0c] p-1 rounded-xl border border-white/10">
-                {Object.keys(itinerary_days).map((d) => (
-                  <button
-                    key={d}
-                    onClick={() => setActiveDay(Number(d))}
-                    className={`px-3.5 py-1.5 text-xs font-extrabold rounded-lg transition-all ${
-                      activeDay === Number(d)
-                        ? 'bg-[#FF6B00] text-white shadow-md shadow-[#FF6B00]/20'
-                        : 'text-slate-400 hover:text-white hover:bg-white/5'
-                    }`}
-                  >
-                    Day {d}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Timeline List */}
-            <div className="space-y-4 relative before:absolute before:inset-0 before:left-3.5 before:w-0.5 before:bg-white/10">
-              {currentDayItems.length === 0 ? (
-                <p className="text-slate-500 text-sm py-4">No activities scheduled for Day {activeDay}.</p>
-              ) : (
-                currentDayItems.map((item: any, idx: number) => {
-                  const isRecovered = item.status === 'RECOVERED';
-                  const isAddedByAgent = item.status === 'ADDED_BY_AGENT' || item.status === 'MODIFIED_BY_AGENT';
-                  const place = item.place;
-
-                  return (
-                    <div key={item.item_id || idx} className="relative pl-8 group">
-                      {/* Timeline Dot */}
-                      <div
-                        className={`absolute left-1.5 top-3.5 w-4 h-4 rounded-full border-2 -translate-x-1/2 flex items-center justify-center ${
-                          isRecovered
-                            ? 'bg-rose-500 border-rose-300 animate-pulse'
-                            : isAddedByAgent
-                            ? 'bg-amber-500 border-amber-300'
-                            : 'bg-[#FF6B00] border-orange-300'
-                        }`}
-                      />
-
-                      {/* Activity Card */}
-                      <div className={`p-4 rounded-xl border transition-all ${
-                        isRecovered
-                          ? 'bg-rose-950/20 border-rose-500/30'
-                          : 'bg-[#0b0b0c] border-white/10 hover:border-[#FF6B00]/40'
-                      }`}>
-                        <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-[#FF6B00] flex items-center gap-1">
-                              <Clock className="w-3.5 h-3.5" /> {item.time_slot}
-                            </span>
-                            <span className="text-xs text-slate-400 font-medium">({item.time_period})</span>
-
-                            {isRecovered && (
-                              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1">
-                                <AlertTriangle className="w-3 h-3" /> TripOS Plan B Swapped
-                              </span>
-                            )}
-
-                            {isAddedByAgent && (
-                              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
-                                <Sparkles className="w-3 h-3" /> Agent Modified
-                              </span>
-                            )}
-                          </div>
-
-                          <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300">
-                            ₹{place.price} {place.price === 0 ? '(Free)' : ''}
-                          </span>
-                        </div>
-
-                        <h4 className="text-base font-bold text-white mb-1 flex items-center gap-2 font-display">
-                          {place.name}
-                          {place.indoor_flag ? (
-                            <span className="text-[10px] font-semibold text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded border border-teal-500/20">
-                              100% Indoor
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
-                              Outdoor Shore
-                            </span>
-                          )}
-                        </h4>
-
-                        <p className="text-xs text-slate-400 mb-3">{place.description}</p>
-
-                        <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-white/5">
-                          <span className="flex items-center gap-1 flex-wrap">
-                            <MapPin className="w-3.5 h-3.5 text-slate-500" /> {place.area} · {place.category}
-                            
-                            {place.distance_km !== undefined && (
-                              <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/20 font-semibold text-[10px] flex items-center gap-1">
-                                🚗 {place.distance_km} km travel
-                              </span>
-                            )}
-                            
-                            {place.duration_hrs !== undefined && (
-                              <span className="ml-1 px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-300 border border-purple-500/20 font-semibold text-[10px] flex items-center gap-1">
-                                ⏱️ {place.duration_hrs} hr duration
-                              </span>
-                            )}
-                          </span>
-                          <span className="text-[#FF6B00] font-bold">⭐ {place.rating} · Crowd: {place.crowd_level}</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {/* Version log & Attribution footer */}
-            <div className="mt-6 pt-4 border-t border-white/10 flex flex-wrap items-center justify-between text-xs text-slate-400 gap-2">
-              <span className="flex items-center gap-1.5">
-                <RefreshCw className="w-3.5 h-3.5 text-[#FF6B00]" /> Latest Version Change: {versions[0]?.change_description || 'Initial Plan'}
-              </span>
-              <span className="text-[10px] text-slate-500">
-                Geospatial data © OpenStreetMap contributors (ODbL)
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* RIGHT COLUMN: Tool-Calling AI Agent (5 cols) */}
-        <div className="lg:col-span-5 space-y-6">
-
-          <div className="bg-[#121316] border border-white/10 rounded-2xl p-5 shadow-xl flex flex-col h-[650px]">
-            {/* Agent Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-white/10 mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-[#FF6B00] flex items-center justify-center font-bold text-white shadow-lg shadow-[#FF6B00]/20">
-                  <Sparkles className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-white text-sm flex items-center gap-1.5 font-display">
-                    Wayzyy AI Agent <CheckCircle2 className="w-4 h-4 text-[#FF6B00] fill-[#FF6B00]/20" />
-                  </h3>
-                  <p className="text-xs text-slate-400">Tool-Calling & GIS Spatial Intelligence</p>
-                </div>
-              </div>
-
-              <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-[#FF6B00]/10 text-[#FF6B00] border border-[#FF6B00]/20 uppercase tracking-wide">
-                Executable Agent
-              </span>
-            </div>
-
-            {/* Messages Feed */}
-            <div className="flex-1 overflow-y-auto space-y-3.5 pr-2 mb-4">
-              {chatMessages.map((msg, idx) => (
-                <div
-                  key={idx}
-                  className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
-                >
-                  <div
-                    className={`max-w-[88%] p-3.5 rounded-2xl text-xs leading-relaxed ${
-                      msg.sender === 'user'
-                        ? 'bg-[#FF6B00] text-white font-bold rounded-br-none shadow-md'
-                        : 'bg-[#0b0b0c] border border-white/10 text-slate-200 rounded-bl-none shadow-sm'
-                    }`}
-                  >
-                    {msg.text}
-                  </div>
-
-                  {/* Tool Execution Audit Log Badge */}
-                  {msg.tool && (
-                    <div className="mt-1.5 text-[10px] font-mono bg-[#0b0b0c] text-teal-300 border border-teal-500/30 px-2.5 py-1 rounded-md flex items-center gap-1 shadow-inner">
-                      <Zap className="w-3 h-3 text-amber-400" />
-                      TOOL EXECUTED: <span className="font-bold">{msg.tool.name}()</span>
-                    </div>
-                  )}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {[
+                { label: 'Quietness', value: `${Math.round((preferences.quietness || 0.9) * 100)}% Quiet`, color: '#FF8A65', bg: 'rgba(255,107,53,0.07)' },
+                { label: 'Budget Limit', value: `≤ ₹${preferences.budget_max}/act`, color: '#E2E8F0', bg: 'rgba(255,255,255,0.04)' },
+                { label: 'GIS Proximity', value: 'OSM Haversine', color: '#2DD4BF', bg: 'rgba(20,184,166,0.07)' },
+                { label: 'Host Direct', value: 'Rahul & Priya (0%)', color: '#34D399', bg: 'rgba(52,211,153,0.07)' },
+              ].map(({ label, value, color, bg }) => (
+                <div key={label} className="p-2.5 rounded-xl" style={{ background: bg, border: '1px solid rgba(255,255,255,0.07)' }}>
+                  <span className="text-[10px] text-slate-500 block mb-0.5 font-medium uppercase tracking-wide">{label}</span>
+                  <span className="text-xs font-bold" style={{ color }}>{value}</span>
                 </div>
               ))}
+            </div>
+          </motion.div>
 
-              {chatLoading && (
-                <div className="flex items-center gap-2 text-xs text-slate-400 bg-[#0b0b0c] p-3 rounded-xl border border-white/10 w-max">
-                  <RefreshCw className="w-3.5 h-3.5 text-[#FF6B00] animate-spin" /> Agent executing tool calls...
-                </div>
+          {/* TripOS Insights */}
+          {tripData.audit_actions?.filter((a: any) => a.action === 'TRIP_INSIGHT').length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }}
+              className="rounded-2xl p-5"
+              style={{ background: 'rgba(10,14,34,0.82)', border: '1px solid rgba(99,102,241,0.35)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)' }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <Cpu className="w-4 h-4 text-indigo-400" />
+                <h3 className="font-bold text-white text-sm" style={{ fontFamily: 'var(--font-sora)' }}>TripOS Optimizer Insights</h3>
+              </div>
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {tripData.audit_actions.filter((a: any) => a.action === 'TRIP_INSIGHT').map((insight: any) => (
+                  <div key={insight.id} className="flex items-start gap-3 p-3 rounded-xl"
+                    style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.15)' }}>
+                    <span className="text-base shrink-0">🧠</span>
+                    <p className="text-xs text-indigo-200 leading-relaxed">{insight.reason}</p>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+          </aside>
+
+          {/* Left main column: Living Itinerary */}
+          <div className="lg:order-1 min-w-0">
+
+          {/* Living Itinerary Timeline */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.15 }}
+            className="rounded-2xl p-6"
+            style={{ background: 'rgba(5,11,20,0.82)', border: '1px solid rgba(255,255,255,0.1)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', boxShadow: '0 8px 32px rgba(0,0,0,0.45)' }}
+          >
+            {/* Day Selector */}
+            <div className="flex items-center justify-between mb-6 pb-5 border-b border-white/6">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2" style={{ fontFamily: 'var(--font-sora)' }}>
+                  Living Itinerary
+                  <span className="text-[11px] font-bold px-2.5 py-1 rounded-full"
+                    style={{ background: 'rgba(255,107,53,0.12)', border: '1px solid rgba(255,107,53,0.25)', color: '#FF8A65' }}>
+                    Day {activeDay} of {Object.keys(itinerary_days).length}
+                  </span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-1">Others generate static plans. Wayzyy keeps your trip working when reality changes.</p>
+              </div>
+              <div className="flex gap-1 p-1 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                {Object.keys(itinerary_days).map((d) => (
+                  <motion.button
+                    key={d}
+                    whileTap={{ scale: 0.92 }}
+                    onClick={() => setActiveDay(Number(d))}
+                    className="px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all"
+                    style={activeDay === Number(d) ? {
+                      background: 'linear-gradient(135deg, #FF6B35, #FF4E6A)',
+                      color: 'white',
+                      boxShadow: '0 2px 12px rgba(255,107,53,0.35)',
+                    } : {
+                      color: '#64748B',
+                    }}
+                    onMouseEnter={e => { if (activeDay !== Number(d)) (e.currentTarget as HTMLButtonElement).style.color = '#E2E8F0'; }}
+                    onMouseLeave={e => { if (activeDay !== Number(d)) (e.currentTarget as HTMLButtonElement).style.color = '#64748B'; }}
+                  >
+                    Day {d}
+                  </motion.button>
+                ))}
+              </div>
+            </div>
+
+            {/* Timeline */}
+            <div className="space-y-4 relative">
+              {/* Vertical line */}
+              <div className="absolute left-[15px] top-0 bottom-4 w-px"
+                style={{ background: 'linear-gradient(to bottom, rgba(255,107,53,0.4), rgba(255,107,53,0.1), transparent)' }} />
+
+              {currentDayItems.length === 0 ? (
+                <p className="text-slate-500 text-sm py-6 pl-8">No activities scheduled for Day {activeDay}.</p>
+              ) : (
+                <AnimatePresence>
+                  {currentDayItems.map((item: any, idx: number) => {
+                    const isRecovered = item.status === 'RECOVERED';
+                    const isAddedByAgent = item.status === 'ADDED_BY_AGENT' || item.status === 'MODIFIED_BY_AGENT';
+                    const place = item.place;
+                    return (
+                      <motion.div
+                        key={item.item_id || idx}
+                        variants={slideIn}
+                        initial="hidden"
+                        animate="show"
+                        transition={{ delay: idx * 0.06 }}
+                        className="relative pl-9 group"
+                      >
+                        {/* Timeline dot */}
+                        <div className={`absolute left-0 top-4 w-[30px] h-[30px] rounded-full border-2 flex items-center justify-center z-10 -translate-x-0 ${
+                          isRecovered ? 'border-rose-400' : isAddedByAgent ? 'border-amber-400' : 'border-orange-400'
+                        }`} style={{
+                          background: isRecovered ? 'rgba(244,63,94,0.2)' : isAddedByAgent ? 'rgba(245,158,11,0.2)' : 'rgba(255,107,53,0.2)',
+                        }}>
+                          <div className={`w-2.5 h-2.5 rounded-full ${isRecovered ? 'bg-rose-400 animate-pulse' : isAddedByAgent ? 'bg-amber-400' : 'bg-orange-400'}`} />
+                        </div>
+
+                        {/* Activity Card */}
+                        <motion.div
+                          variants={cardHover}
+                          initial="rest"
+                          whileHover="hover"
+                          className="p-4 rounded-2xl transition-all"
+                          style={isRecovered ? {
+                            background: 'rgba(244,63,94,0.06)',
+                            border: '1px solid rgba(244,63,94,0.25)',
+                          } : {
+                            background: 'rgba(255,255,255,0.03)',
+                            border: '1px solid rgba(255,255,255,0.08)',
+                          }}
+                        >
+                          <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-bold flex items-center gap-1" style={{ color: '#FF8A65' }}>
+                                <Clock className="w-3.5 h-3.5" />{item.time_slot}
+                              </span>
+                              <span className="text-[11px] text-slate-500 font-medium">({item.time_period})</span>
+                              {isRecovered && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1"
+                                  style={{ background: 'rgba(244,63,94,0.15)', border: '1px solid rgba(244,63,94,0.3)', color: '#FDA4AF' }}>
+                                  <AlertTriangle className="w-3 h-3" /> Plan B Swapped
+                                </span>
+                              )}
+                              {isAddedByAgent && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1"
+                                  style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid rgba(245,158,11,0.25)', color: '#FCD34D' }}>
+                                  <Sparkles className="w-3 h-3" /> Agent Modified
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full"
+                              style={{ background: 'rgba(255,255,255,0.06)', color: '#94A3B8' }}>
+                              ₹{place.price}{place.price === 0 ? ' (Free)' : ''}
+                            </span>
+                          </div>
+
+                          <h4 className="text-base font-bold text-white mb-1 flex items-center gap-2" style={{ fontFamily: 'var(--font-sora)' }}>
+                            {place.name}
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                              place.indoor_flag
+                                ? 'text-teal-400 bg-teal-500/10 border border-teal-500/20'
+                                : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
+                            }`}>
+                              {place.indoor_flag ? '🏛 Indoor' : '🌊 Outdoor'}
+                            </span>
+                          </h4>
+                          <p className="text-xs text-slate-400 mb-3 leading-relaxed">{place.description}</p>
+
+                          <div className="flex items-center justify-between text-[11px] pt-2.5 border-t border-white/5">
+                            <span className="flex items-center gap-2 flex-wrap text-slate-500">
+                              <span className="flex items-center gap-1"><MapPin className="w-3 h-3 text-slate-600" />{place.area} · {place.category}</span>
+                              {place.distance_km !== undefined && (
+                                <span className="px-1.5 py-0.5 rounded-full flex items-center gap-1"
+                                  style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', color: '#93C5FD' }}>
+                                  🚗 {place.distance_km} km
+                                </span>
+                              )}
+                              {place.duration_hrs !== undefined && (
+                                <span className="px-1.5 py-0.5 rounded-full flex items-center gap-1"
+                                  style={{ background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.2)', color: '#C4B5FD' }}>
+                                  ⏱️ {place.duration_hrs}hr
+                                </span>
+                              )}
+                            </span>
+                            <span className="font-bold" style={{ color: '#FF8A65' }}>⭐ {place.rating} · Crowd: {place.crowd_level}</span>
+                          </div>
+                        </motion.div>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
               )}
             </div>
 
-            {/* Prompt Chips */}
-            <div className="flex gap-1.5 overflow-x-auto pb-2 mb-3 no-scrollbar text-xs">
-              <button
-                onClick={() => handleSendMessage('Search seafood spots within 5 km')}
-                className="px-2.5 py-1 rounded-lg bg-[#0b0b0c] hover:bg-white/5 text-slate-300 border border-white/10 whitespace-nowrap text-[11px]"
-              >
-                📍 GIS Search within 5 km
-              </button>
-              <button
-                onClick={() => handleSendMessage('Will it rain tomorrow in Baga?')}
-                className="px-2.5 py-1 rounded-lg bg-[#0b0b0c] hover:bg-white/5 text-slate-300 border border-white/10 whitespace-nowrap text-[11px]"
-              >
-                🌧️ Weather Check
-              </button>
-              <button
-                onClick={() => handleSendMessage('Ask host for local tips')}
-                className="px-2.5 py-1 rounded-lg bg-[#0b0b0c] hover:bg-white/5 text-slate-300 border border-white/10 whitespace-nowrap text-[11px]"
-              >
-                🏠 Host tips
-              </button>
+            {/* Version footer */}
+            <div className="mt-6 pt-4 border-t border-white/6 flex flex-wrap items-center justify-between text-[11px] text-slate-500 gap-2">
+              <span className="flex items-center gap-1.5">
+                <RefreshCw className="w-3.5 h-3.5 text-orange-400" />
+                Latest: {versions[0]?.change_description || 'Initial Plan'}
+              </span>
+              <span>Geospatial data © OpenStreetMap contributors (ODbL)</span>
+            </div>
+          </motion.div>
+          </div>
+        </div>
+      </div>
+
+      {/* ══ FLOATING AI CONCIERGE (Chatbot) ═══════════════════════════════════ */}
+      
+      {/* Floating Action Button (FAB) */}
+      <motion.button
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        onClick={() => setIsChatOpen(!isChatOpen)}
+        className="fixed bottom-6 right-6 w-16 h-16 rounded-full flex items-center justify-center shadow-2xl z-50 transition-colors"
+        style={{ background: 'linear-gradient(135deg, #FF6B35, #FF4E6A)', boxShadow: '0 8px 32px rgba(255,107,53,0.5)' }}
+      >
+        {isChatOpen ? <X className="w-7 h-7 text-white" /> : <Sparkles className="w-7 h-7 text-white" />}
+      </motion.button>
+
+      <AnimatePresence>
+        {isChatOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 40, scale: 0.95, transformOrigin: 'bottom right' }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 40, scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 300, damping: 25 }}
+            className="fixed bottom-28 right-6 z-50 w-[420px] max-w-[calc(100vw-2rem)] flex flex-col overflow-hidden rounded-2xl"
+            style={{
+              background: 'rgba(5, 11, 20, 0.95)',
+              backdropFilter: 'blur(32px)',
+              WebkitBackdropFilter: 'blur(32px)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05)',
+              height: '680px',
+              maxHeight: 'calc(100vh - 9rem)',
+            }}
+          >
+            {/* Chat header */}
+            <div className="flex items-center justify-between p-5 border-b border-white/6"
+              style={{ background: 'rgba(255,255,255,0.02)' }}>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl flex items-center justify-center relative"
+                  style={{ background: 'linear-gradient(135deg, rgba(255,107,53,0.2), rgba(255,78,106,0.15))', border: '1px solid rgba(255,107,53,0.3)' }}>
+                  <Sparkles className="w-5 h-5 text-orange-400" />
+                  <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-[#050B14]" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-sm flex items-center gap-1.5" style={{ fontFamily: 'var(--font-sora)' }}>
+                    Wayzyy AI Concierge
+                    <CheckCircle2 className="w-3.5 h-3.5 text-orange-400" />
+                  </h3>
+                  <p className="text-[11px] text-slate-500">Tool-Calling & GIS Spatial Intelligence</p>
+                </div>
+              </div>
+              <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wide"
+                style={{ background: 'rgba(255,107,53,0.10)', border: '1px solid rgba(255,107,53,0.22)', color: '#FF8A65' }}>
+                Live Agent
+              </span>
             </div>
 
-            {/* Input Bar */}
-            <div className="flex gap-2 items-center">
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {chatMessages.map((msg, idx) => (
+                <motion.div
+                  key={idx}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
+                >
+                  <div className={`max-w-[88%] px-4 py-3 rounded-2xl text-xs leading-relaxed font-medium ${
+                    msg.sender === 'user'
+                      ? 'text-white rounded-br-sm'
+                      : 'text-slate-200 rounded-bl-sm'
+                  }`} style={msg.sender === 'user' ? {
+                    background: 'linear-gradient(135deg, #FF6B35, #FF4E6A)',
+                    boxShadow: '0 4px 16px rgba(255,107,53,0.25)',
+                  } : {
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                  }}>
+                    {msg.text}
+                  </div>
+                  {msg.tool && (
+                    <div className="mt-1.5 text-[10px] font-mono px-2.5 py-1 rounded-lg flex items-center gap-1.5"
+                      style={{ background: 'rgba(20,184,166,0.08)', border: '1px solid rgba(20,184,166,0.2)', color: '#2DD4BF' }}>
+                      <Zap className="w-3 h-3 text-amber-400" />
+                      TOOL: <span className="font-bold">{msg.tool.name}()</span>
+                    </div>
+                  )}
+                </motion.div>
+              ))}
+              {chatLoading && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                  className="flex items-center gap-2 text-[11px] text-slate-400 px-4 py-2.5 rounded-2xl w-max"
+                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                  <RefreshCw className="w-3.5 h-3.5 text-orange-400 animate-spin" />
+                  Agent executing tool calls...
+                </motion.div>
+              )}
+              <div ref={chatBottomRef} />
+            </div>
+
+            {/* Prompt chips */}
+            <div className="flex gap-1.5 overflow-x-auto px-4 pb-2 no-scrollbar">
+              {[
+                { label: '📍 GIS Search within 5 km', msg: 'Search seafood spots within 5 km' },
+                { label: '🌧️ Weather Check', msg: 'Will it rain tomorrow in Baga?' },
+                { label: '🏠 Host tips', msg: 'Ask host for local tips' },
+              ].map(({ label, msg }) => (
+                <button key={label} onClick={() => handleSendMessage(msg)}
+                  className="shrink-0 px-2.5 py-1.5 rounded-xl text-[11px] font-medium text-slate-400 transition-all whitespace-nowrap"
+                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#E2E8F0'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,107,53,0.3)'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = '#94A3B8'; (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(255,255,255,0.08)'; }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Input bar */}
+            <div className="p-4 pt-2 flex gap-2 items-center border-t border-white/6">
               <div className="flex-1 relative">
                 <input
                   type="text"
@@ -720,336 +790,395 @@ export default function ConciergePage() {
                   onChange={(e) => setInputMsg(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
                   placeholder={isListening ? '🎙️ Listening...' : 'Ask agent to search places or modify itinerary...'}
-                  className={`w-full bg-[#0b0b0c] border rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none transition-colors ${
-                    isListening
-                      ? 'border-rose-500 placeholder-rose-400 animate-pulse'
-                      : 'border-white/10 focus:border-[#FF6B00]'
-                  }`}
+                  className={`w-full px-4 py-2.5 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none transition-all ${isListening ? 'animate-pulse' : ''}`}
+                  style={{
+                    background: 'rgba(255,255,255,0.04)',
+                    border: isListening ? '1px solid rgba(244,63,94,0.5)' : '1px solid rgba(255,255,255,0.09)',
+                  }}
+                  onFocus={e => { e.currentTarget.style.borderColor = 'rgba(255,107,53,0.45)'; }}
+                  onBlur={e => { e.currentTarget.style.borderColor = isListening ? 'rgba(244,63,94,0.5)' : 'rgba(255,255,255,0.09)'; }}
                 />
               </div>
-
-              {/* Mic Button */}
-              <button
-                onClick={startVoiceInput}
-                disabled={isListening}
-                title="Voice input (speaks in Indian English)"
-                className={`p-2.5 rounded-xl font-bold transition-all shadow-md flex items-center justify-center ${
-                  isListening
-                    ? 'bg-rose-500 text-white animate-pulse shadow-rose-500/30 cursor-not-allowed'
-                    : 'bg-[#141518] border border-white/10 text-slate-300 hover:text-white hover:border-white/30'
-                }`}
-              >
+              <motion.button whileTap={{ scale: 0.9 }} onClick={startVoiceInput} disabled={isListening}
+                className="p-2.5 rounded-xl transition-all"
+                style={isListening ? {
+                  background: 'rgba(244,63,94,0.2)',
+                  border: '1px solid rgba(244,63,94,0.4)',
+                  color: '#FDA4AF',
+                } : {
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.09)',
+                  color: '#94A3B8',
+                }}>
                 {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-              </button>
-
-              {/* Send Button */}
-              <button
+              </motion.button>
+              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                 onClick={() => handleSendMessage()}
-                className="px-4 py-2.5 rounded-xl bg-[#FF6B00] hover:bg-[#FF6B00]/90 text-white font-bold transition-all shadow-md shadow-[#FF6B00]/20"
-              >
+                className="p-2.5 rounded-xl text-white"
+                style={{ background: 'linear-gradient(135deg, #FF6B35, #FF4E6A)', boxShadow: '0 3px 12px rgba(255,107,53,0.3)' }}>
                 <Send className="w-4 h-4" />
-              </button>
+              </motion.button>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      </div>
-
-      {/* MODAL 1: ⚡ Weather Recovery Proposal Modal */}
-      {showIncidentToast && incidentResult && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#121316] border border-rose-500/40 rounded-3xl p-6 max-w-lg w-full shadow-2xl relative overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-rose-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
-
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center">
-                  <CloudRain className="w-6 h-6 animate-pulse" />
+      {/* ══ MODAL: Weather Recovery Proposal ════════════════════════════════════ */}
+      <AnimatePresence>
+        {showIncidentToast && incidentResult && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: 'rgba(5,11,20,0.85)', backdropFilter: 'blur(12px)' }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.9, y: 20, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+              className="rounded-3xl p-6 max-w-lg w-full relative overflow-hidden"
+              style={{ background: 'rgba(7,17,31,0.98)', border: '1px solid rgba(244,63,94,0.3)', boxShadow: '0 0 0 1px rgba(244,63,94,0.1), 0 32px 64px rgba(0,0,0,0.6)' }}
+            >
+              <div className="absolute top-0 right-0 w-56 h-56 rounded-full pointer-events-none -mr-16 -mt-16"
+                style={{ background: 'radial-gradient(circle, rgba(244,63,94,0.12) 0%, transparent 70%)' }} />
+              <div className="relative z-10">
+                <div className="flex items-start justify-between mb-5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-2xl flex items-center justify-center"
+                      style={{ background: 'rgba(244,63,94,0.15)', border: '1px solid rgba(244,63,94,0.3)' }}>
+                      <CloudRain className="w-6 h-6 text-rose-400 animate-pulse" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-white" style={{ fontFamily: 'var(--font-sora)' }}>TripOS Detected a Disruption</h3>
+                      <p className="text-xs text-rose-300">🌧️ Rain expected 2:00–5:00 PM · Beach activity affected</p>
+                    </div>
+                  </div>
+                  <button onClick={() => setShowIncidentToast(false)} className="p-1.5 rounded-xl text-slate-500 hover:text-white transition-colors">
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-                <div>
-                  <h3 className="text-lg font-bold text-white font-display">⚡ TripOS Weather Recovery Proposal</h3>
-                  <p className="text-xs text-rose-300">Proactive Disruption Alert (Rain Forecast)</p>
+
+                <div className="p-4 rounded-2xl mb-5"
+                  style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <h4 className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: '#FF8A65' }}>
+                    Why TripOS is recommending this recovery?
+                  </h4>
+                  <p className="text-xs text-slate-300 leading-relaxed">{incidentResult.why_audit}</p>
+
+                  {incidentResult.swapped_details?.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-white/6 space-y-2">
+                      <span className="text-[11px] font-bold text-slate-400 block">Proposed Activity Swap:</span>
+                      {incidentResult.swapped_details.map((swap: any, idx: number) => (
+                        <div key={idx} className="p-3 rounded-xl" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1">
+                              <span className="line-through text-slate-500 text-[11px] block">{swap.original_place}</span>
+                              <span className="font-bold text-sm flex items-center gap-1.5 mt-1" style={{ color: '#FF8A65' }}>
+                                <ArrowRight className="w-3.5 h-3.5" />
+                                {swap.new_place}
+                                {swap.new_place_area && <span className="text-slate-400 font-normal text-xs">({swap.new_place_area})</span>}
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-bold px-2 py-1 rounded-full shrink-0"
+                              style={{ background: 'rgba(255,107,53,0.12)', border: '1px solid rgba(255,107,53,0.25)', color: '#FF8A65' }}>
+                              Plan B
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
+
+                <div className="flex gap-3">
+                  <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                    onClick={() => handleAcceptRecovery()}
+                    className="flex-1 py-2.5 rounded-xl text-white text-sm font-bold flex items-center justify-center gap-2"
+                    style={{ background: 'linear-gradient(135deg, #FF6B35, #FF4E6A)', boxShadow: '0 4px 16px rgba(255,107,53,0.3)' }}>
+                    <Check className="w-4 h-4" /> Accept Change
+                  </motion.button>
+                  <button onClick={() => setShowIncidentToast(false)}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-bold text-slate-300 transition-all"
+                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                    Keep Original
+                  </button>
+                </div>
+                {incidentResult.auto_applied && (
+                  <p className="text-center text-[11px] text-emerald-400 mt-3 flex items-center justify-center gap-1">
+                    <Check className="w-3 h-3" /> Auto-applied & itinerary updated
+                  </p>
+                )}
               </div>
-              <button
-                onClick={() => setShowIncidentToast(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/5"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-            <div className="bg-[#0b0b0c] p-4 rounded-xl border border-white/10 mb-5 space-y-3">
-              <h4 className="text-xs font-bold text-[#FF6B00] uppercase tracking-wider">Why is TripOS recommending this recovery?</h4>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                {incidentResult.why_audit}
-              </p>
+      {/* ══ MODAL: Traffic Delay ═════════════════════════════════════════════════ */}
+      <AnimatePresence>
+        {showDelayModal && delayResult && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: 'rgba(5,11,20,0.85)', backdropFilter: 'blur(12px)' }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.9, y: 20, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+              className="rounded-3xl p-6 max-w-lg w-full relative overflow-hidden"
+              style={{ background: 'rgba(7,17,31,0.98)', border: '1px solid rgba(99,102,241,0.3)', boxShadow: '0 32px 64px rgba(0,0,0,0.6)' }}
+            >
+              <div className="absolute top-0 left-0 w-48 h-48 rounded-full pointer-events-none -ml-12 -mt-12"
+                style={{ background: 'radial-gradient(circle, rgba(99,102,241,0.12) 0%, transparent 70%)' }} />
+              <div className="relative z-10">
+                <div className="flex items-start justify-between mb-5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-2xl flex items-center justify-center"
+                      style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)' }}>
+                      <Car className="w-6 h-6 text-indigo-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-white" style={{ fontFamily: 'var(--font-sora)' }}>Traffic Delay Evaluation</h3>
+                      <p className="text-xs text-indigo-300">d/speed matrix conflict analysis</p>
+                    </div>
+                  </div>
+                  <button onClick={() => setShowDelayModal(false)} className="p-1.5 rounded-xl text-slate-500 hover:text-white">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
 
-              {incidentResult.swapped_details && incidentResult.swapped_details.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
-                  <span className="text-[11px] font-bold text-slate-400 block">Proposed Activity Swap:</span>
-                  {incidentResult.swapped_details.map((swap: any, idx: number) => (
-                    <div key={idx} className="text-xs bg-[#121316] p-3 rounded-xl border border-white/10 flex items-center justify-between">
-                      <div>
-                        <span className="line-through text-slate-500 block text-[11px]">{swap.original_place}</span>
-                        <span className="font-bold text-[#FF6B00] flex items-center gap-1 mt-0.5">
-                          → {swap.new_place} ({swap.new_place_area})
+                <div className="p-4 rounded-2xl mb-5"
+                  style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                  <p className="text-xs text-slate-300 leading-relaxed mb-3">
+                    Status: <span className="font-bold" style={{ color: delayResult.status === 'CONFLICT_DETECTED' ? '#FDA4AF' : '#34D399' }}>{delayResult.status?.replace(/_/g, ' ')}</span>
+                  </p>
+                  {delayResult.message && <p className="text-xs text-slate-400 leading-relaxed">{delayResult.message}</p>}
+                  {delayResult.proposal && (
+                    <div className="mt-3 pt-3 border-t border-white/6">
+                      <p className="text-[11px] font-bold text-slate-400 mb-2">AI Recovery Proposal:</p>
+                      <p className="text-xs text-indigo-200">{delayResult.proposal.reason || JSON.stringify(delayResult.proposal)}</p>
+                    </div>
+                  )}
+                  {delayResult.auto_applied && (
+                    <p className="text-[11px] text-emerald-400 mt-3 flex items-center gap-1">
+                      <Check className="w-3 h-3" /> Auto-applied & itinerary updated
+                    </p>
+                  )}
+                </div>
+                <button onClick={() => setShowDelayModal(false)}
+                  className="w-full py-2.5 rounded-xl text-sm font-bold text-white transition-all"
+                  style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)', boxShadow: '0 4px 16px rgba(99,102,241,0.25)' }}>
+                  Got it
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ══ MODAL: Right Now ════════════════════════════════════════════════════ */}
+      <AnimatePresence>
+        {showRightNow && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: 'rgba(5,11,20,0.85)', backdropFilter: 'blur(12px)' }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.9, y: 20, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+              className="rounded-3xl p-6 max-w-lg w-full"
+              style={{ background: 'rgba(7,17,31,0.98)', border: '1px solid rgba(245,158,11,0.3)', boxShadow: '0 32px 64px rgba(0,0,0,0.6)' }}
+            >
+              <div className="flex items-start justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl flex items-center justify-center"
+                    style={{ background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)' }}>
+                    <Zap className="w-6 h-6 text-amber-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white" style={{ fontFamily: 'var(--font-sora)' }}>What to Do Right Now</h3>
+                    <p className="text-xs text-amber-300">Contextual recommendations near you</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowRightNow(false)} className="p-1.5 rounded-xl text-slate-500 hover:text-white">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              {rightNowCandidates.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-6">No candidates found right now.</p>
+              ) : (
+                <div className="space-y-3 max-h-80 overflow-y-auto">
+                  {rightNowCandidates.map((c: any, idx: number) => (
+                    <div key={idx} className="p-4 rounded-2xl"
+                      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <h4 className="font-bold text-white text-sm">{c.name || c.place?.name}</h4>
+                        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0"
+                          style={{ background: 'rgba(245,158,11,0.12)', color: '#FCD34D' }}>
+                          ⭐ {c.rating || c.place?.rating}
                         </span>
                       </div>
-                      <span className="text-[10px] px-2 py-1 rounded bg-[#FF6B00]/10 text-[#FF6B00] border border-[#FF6B00]/20 font-extrabold">
-                        Plan B Replacement
-                      </span>
+                      <p className="text-xs text-slate-400">{c.description || c.place?.description}</p>
+                      {c.distance_km && <p className="text-[11px] text-teal-400 mt-1.5">📍 {c.distance_km} km away</p>}
+                      <div className="flex items-center justify-between mt-3">
+                        <span className="text-[11px] text-slate-500 capitalize">{c.place?.category || c.category || 'Activity'}</span>
+                        <button
+                          onClick={() => handleAddRecommendation(c, idx)}
+                          disabled={!!addedCandidates[idx]}
+                          className="flex items-center gap-1 text-[11px] font-bold px-3 py-1.5 rounded-xl transition-all disabled:cursor-default"
+                          style={addedCandidates[idx]
+                            ? { background: 'rgba(16,185,129,0.15)', color: '#34D399', border: '1px solid rgba(16,185,129,0.35)' }
+                            : { background: 'rgba(20,184,166,0.15)', color: '#5EEAD4', border: '1px solid rgba(20,184,166,0.35)' }}
+                        >
+                          {addedCandidates[idx]
+                            ? (<><Check className="w-3.5 h-3.5" /> Added · Day {activeDay}</>)
+                            : (<><Plus className="w-3.5 h-3.5" /> Add to Day {activeDay}</>)}
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
               )}
-            </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-            <div className="flex items-center gap-3">
-              {incidentResult.auto_applied ? (
-                <button
-                  onClick={() => setShowIncidentToast(false)}
-                  className="flex-1 py-3.5 rounded-full bg-gradient-to-r from-[#FF6B00] to-rose-500 hover:from-[#e66000] hover:to-rose-600 text-white font-extrabold text-xs uppercase tracking-wider transition-colors shadow-lg flex items-center justify-center gap-1.5"
-                >
-                  <Check className="w-4 h-4 text-white" /> Got it! Itinerary updated
-                </button>
-              ) : (
-                <>
-                  <button
-                    onClick={() => handleAcceptRecovery()}
-                    className="flex-1 py-3.5 rounded-full bg-[#FF6B00] hover:bg-[#FF6B00]/90 text-white font-extrabold text-xs uppercase tracking-wider transition-colors shadow-lg shadow-[#FF6B00]/25 flex items-center justify-center gap-1.5"
-                  >
-                    <Check className="w-4 h-4 text-white" /> Accept Recovery Proposal
-                  </button>
-                  <button
-                    onClick={() => setShowIncidentToast(false)}
-                    className="px-5 py-3.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors border border-white/10"
-                  >
-                    Keep Original
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 2: 🚗 Schedule Conflict & Traffic Delay Matrix Modal */}
-      {showDelayModal && delayResult && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#121316] border border-indigo-500/40 rounded-3xl p-6 max-w-lg w-full shadow-2xl relative overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none" />
-
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center justify-center">
-                  <Car className="w-6 h-6 animate-pulse" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-white font-display">🚗 Traffic Delay & Haversine Matrix</h3>
-                  <p className="text-xs text-indigo-300">Proactive Schedule Conflict Resolution Engine</p>
-                </div>
-              </div>
-              <button onClick={() => setShowDelayModal(false)} className="p-1 rounded-lg text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="bg-[#0b0b0c] p-4 rounded-xl border border-white/10 mb-5 space-y-3">
-              <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                <div className="p-2 bg-[#121316] rounded-lg border border-white/5">
-                  <span className="text-slate-400 text-[10px] block">Delay Lag</span>
-                  <span className="font-extrabold text-amber-400">{delayResult.delay_minutes} mins</span>
-                </div>
-                <div className="p-2 bg-[#121316] rounded-lg border border-white/5">
-                  <span className="text-slate-400 text-[10px] block">GIS Distance</span>
-                  <span className="font-extrabold text-teal-400">{delayResult.distance_km} km</span>
-                </div>
-                <div className="p-2 bg-[#121316] rounded-lg border border-white/5">
-                  <span className="text-slate-400 text-[10px] block">Travel Time</span>
-                  <span className="font-extrabold text-indigo-300">{delayResult.travel_time_min} mins</span>
-                </div>
-              </div>
-
-              <div className="p-3 bg-indigo-500/10 rounded-xl border border-indigo-500/20 text-xs text-indigo-200">
-                <span className="font-bold block mb-1">Haversine Traffic Equation (d / speed):</span>
-                <span>Distance: {delayResult.distance_km} km · Est. Speed: 25 km/h · Total Schedule Delay Buffer Needed: <strong>{delayResult.total_buffer_needed_min} mins</strong></span>
-              </div>
-
-              {delayResult.proposal && (
-                <div className="p-3 bg-[#121316] rounded-xl border border-white/10 text-xs text-slate-300">
-                  <span className="font-bold text-[#FF6B00] block mb-1">Proposed Resolution:</span>
-                  <p>{delayResult.proposal.reason}</p>
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center gap-3">
-              {delayResult.auto_applied ? (
-                <button
-                  onClick={() => setShowDelayModal(false)}
-                  className="flex-1 py-3.5 rounded-full bg-gradient-to-r from-[#FF6B00] to-indigo-600 hover:from-[#e66000] hover:to-indigo-700 text-white font-extrabold text-xs uppercase tracking-wider transition-colors shadow-lg flex items-center justify-center gap-1.5"
-                >
-                  <Check className="w-4 h-4 text-white" /> Got it! Schedule adjusted
-                </button>
-              ) : delayResult.proposal ? (
-                <button
-                  onClick={() => handleAcceptRecovery(delayResult.proposal.proposal_id)}
-                  className="flex-1 py-3.5 rounded-full bg-[#FF6B00] hover:bg-[#FF6B00]/90 text-white font-extrabold text-xs uppercase tracking-wider transition-colors shadow-lg shadow-[#FF6B00]/25 flex items-center justify-center gap-1.5"
-                >
-                  <Check className="w-4 h-4 text-white" /> Accept Schedule Adjustment
-                </button>
-              ) : (
-                <button
-                  onClick={() => setShowDelayModal(false)}
-                  className="flex-1 py-3.5 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs uppercase tracking-wider"
-                >
-                  Schedule On Track
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 3: ✨ "What Should I Do Right Now?" Drawer */}
-      {showRightNow && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#121316] border border-white/10 rounded-3xl p-6 max-w-xl w-full shadow-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center font-bold">
-                  <Zap className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-white font-display">✨ What should I do right now?</h3>
-                  <p className="text-xs text-slate-400">Context: 4:47 PM · {trip?.destination || 'Goa'} · GIS Radius ≤ 15 km · Budget ≤ ₹{preferences?.budget_max || 2500}</p>
-                </div>
-              </div>
-              <button onClick={() => setShowRightNow(false)} className="p-1 text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-3 mb-6">
-              {rightNowCandidates.map((cand, idx) => (
-                <div key={idx} className="bg-[#0b0b0c] p-4 rounded-xl border border-white/10 flex items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-bold text-white text-sm">{cand.place.name}</span>
-                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-[#FF6B00]/20 text-[#FF6B00] border border-[#FF6B00]/30">
-                        {cand.match_percentage}% Match
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 mb-2">{cand.place.description}</p>
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                      {cand.reasons.map((r: string, rIdx: number) => (
-                        <span key={rIdx} className="text-[10px] px-2 py-0.5 rounded bg-[#121316] text-slate-300 border border-white/10">
-                          {r}
-                        </span>
-                      ))}
-                    </div>
-                    <span className="text-[10px] text-teal-400 font-semibold block">
-                      Dataset: {cand.dataset_source || 'HuggingFace / Kaggle'}
-                    </span>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      handleSendMessage(`Add ${cand.place.name} to my itinerary`);
-                      setShowRightNow(false);
-                    }}
-                    className="px-3.5 py-2 rounded-full bg-[#FF6B00] hover:bg-[#FF6B00]/90 text-white font-bold text-xs whitespace-nowrap shadow-md shadow-[#FF6B00]/20"
-                  >
-                    + Add to Trip
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 4: Direct Host Recommendations */}
-      {showHostTips && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#121316] border border-teal-500/30 rounded-3xl p-6 max-w-lg w-full shadow-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-teal-500/20 text-teal-400 border border-teal-500/30 flex items-center justify-center">
-                  <Home className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-white font-display">Direct Host Recommendations</h3>
-                  <p className="text-xs text-teal-300">100% Direct Connection with Superhosts Rahul & Priya</p>
-                </div>
-              </div>
-              <button onClick={() => setShowHostTips(false)} className="p-1 text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-3 mb-6">
-              {hostTips.map((tip, idx) => (
-                <div key={idx} className="bg-[#0b0b0c] p-4 rounded-xl border border-white/10">
-                  <h4 className="text-xs font-bold text-[#FF6B00] mb-1">🏠 Host Recommended: {tip.place.name}</h4>
-                  <p className="text-xs text-slate-200 italic mb-2">"{tip.quote}"</p>
-                  <span className="text-[10px] text-slate-500 block">Superhosts: {tip.host_name} ({tip.property})</span>
-                </div>
-              ))}
-            </div>
-
-            <button
-              onClick={() => setShowHostTips(false)}
-              className="w-full py-2.5 rounded-full bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold text-xs"
+      {/* ══ MODAL: Host Tips ════════════════════════════════════════════════════ */}
+      <AnimatePresence>
+        {showHostTips && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: 'rgba(5,11,20,0.85)', backdropFilter: 'blur(12px)' }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.9, y: 20, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+              className="rounded-3xl p-6 max-w-lg w-full"
+              style={{ background: 'rgba(7,17,31,0.98)', border: '1px solid rgba(20,184,166,0.3)', boxShadow: '0 32px 64px rgba(0,0,0,0.6)' }}
             >
-              Close Host Tips
-            </button>
-          </div>
-        </div>
-      )}
+              <div className="flex items-start justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl flex items-center justify-center"
+                    style={{ background: 'rgba(20,184,166,0.15)', border: '1px solid rgba(20,184,166,0.3)' }}>
+                    <Home className="w-6 h-6 text-teal-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white" style={{ fontFamily: 'var(--font-sora)' }}>Direct Host Tips</h3>
+                    <p className="text-xs text-teal-300">RAG-powered local intelligence from Rahul & Priya</p>
+                  </div>
+                </div>
+                <button onClick={() => setShowHostTips(false)} className="p-1.5 rounded-xl text-slate-500 hover:text-white">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              {hostTips.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-6">No host tips available right now.</p>
+              ) : (
+                <div className="space-y-3 max-h-80 overflow-y-auto">
+                  {hostTips.map((tip: any, idx: number) => (
+                    <div key={idx} className="flex items-start gap-3 p-3.5 rounded-2xl"
+                      style={{ background: 'rgba(20,184,166,0.06)', border: '1px solid rgba(20,184,166,0.15)' }}>
+                      <span className="text-base shrink-0">💡</span>
+                      <p className="text-xs text-teal-100 leading-relaxed">{tip.tip || tip}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* MODAL 5: Recruiter Architecture Diagram */}
-      {showArchitecture && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#121316] border border-white/10 rounded-3xl p-6 max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4 pb-3 border-b border-white/10">
-              <div className="flex items-center gap-3">
-                <Cpu className="w-6 h-6 text-teal-400" />
-                <div>
-                  <h3 className="text-lg font-bold text-white font-display">Wayzyy TripOS System Architecture</h3>
-                  <p className="text-xs text-slate-400">Recruiter Deep-Dive Engineering Map</p>
+      {/* ══ MODAL: Architecture Deep-Dive ══════════════════════════════════════ */}
+      <AnimatePresence>
+        {showArchitecture && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: 'rgba(5,11,20,0.88)', backdropFilter: 'blur(16px)' }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 24, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.9, y: 24, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 280, damping: 24 }}
+              className="rounded-3xl p-7 max-w-md w-full relative overflow-hidden"
+              style={{ background: 'rgba(7,17,31,0.98)', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 32px 64px rgba(0,0,0,0.7)' }}
+            >
+              <div className="absolute top-0 right-0 w-48 h-48 pointer-events-none -mr-12 -mt-12"
+                style={{ background: 'radial-gradient(circle, rgba(20,184,166,0.1) 0%, transparent 70%)' }} />
+              <div className="relative z-10">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+                      style={{ background: 'rgba(20,184,166,0.12)', border: '1px solid rgba(20,184,166,0.25)' }}>
+                      <Layers className="w-5 h-5 text-teal-400" />
+                    </div>
+                    <h3 className="font-bold text-white text-base" style={{ fontFamily: 'var(--font-sora)' }}>How TripOS Thinks</h3>
+                  </div>
+                  <button onClick={() => setShowArchitecture(false)} className="p-1.5 rounded-xl text-slate-500 hover:text-white">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  {[
+                    { label: 'USER INPUT', color: 'rgba(255,107,53,0.15)', border: 'rgba(255,107,53,0.3)', text: '#FF8A65', type: 'input' },
+                    { label: 'GEMINI AI AGENT', color: 'rgba(99,102,241,0.12)', border: 'rgba(99,102,241,0.3)', text: '#A5B4FC', type: 'ai' },
+                    { label: 'TOOL CALLS', color: 'rgba(99,102,241,0.08)', border: 'rgba(99,102,241,0.2)', text: '#C4B5FD', type: 'ai' },
+                    { label: 'GIS / RAG / TRIP TOOLS', color: 'rgba(99,102,241,0.08)', border: 'rgba(99,102,241,0.2)', text: '#C4B5FD', type: 'ai' },
+                    { label: 'DETERMINISTIC TRIP ENGINE', color: 'rgba(20,184,166,0.1)', border: 'rgba(20,184,166,0.3)', text: '#2DD4BF', type: 'logic' },
+                    { label: 'RANKING + CONSTRAINTS', color: 'rgba(20,184,166,0.08)', border: 'rgba(20,184,166,0.2)', text: '#5EEAD4', type: 'logic' },
+                    { label: 'STATE VALIDATION', color: 'rgba(20,184,166,0.08)', border: 'rgba(20,184,166,0.2)', text: '#5EEAD4', type: 'logic' },
+                    { label: 'DATABASE (SQLite)', color: 'rgba(52,211,153,0.1)', border: 'rgba(52,211,153,0.3)', text: '#34D399', type: 'output' },
+                  ].map(({ label, color, border, text, type }, idx) => (
+                    <div key={label}>
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 px-4 py-2.5 rounded-xl flex items-center justify-between"
+                          style={{ background: color, border: `1px solid ${border}` }}>
+                          <span className="text-xs font-bold" style={{ color }}>{label}</span>
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full"
+                            style={{
+                              background: type === 'ai' ? 'rgba(99,102,241,0.12)' : type === 'logic' ? 'rgba(20,184,166,0.1)' : 'rgba(255,255,255,0.06)',
+                              color: type === 'ai' ? '#A5B4FC' : type === 'logic' ? '#2DD4BF' : '#94A3B8',
+                            }}>
+                            {type === 'ai' ? 'AI Reasoning' : type === 'logic' ? 'Deterministic' : ''}
+                          </span>
+                        </div>
+                      </div>
+                      {idx < 7 && (
+                        <div className="flex justify-center py-0.5">
+                          <div className="w-px h-3" style={{ background: 'rgba(255,255,255,0.1)' }} />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex gap-3">
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <div className="w-3 h-3 rounded-full" style={{ background: 'rgba(99,102,241,0.5)' }} />
+                    <span className="text-slate-400">AI Reasoning (Gemini)</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <div className="w-3 h-3 rounded-full" style={{ background: 'rgba(20,184,166,0.5)' }} />
+                    <span className="text-slate-400">Deterministic Logic</span>
+                  </div>
                 </div>
               </div>
-              <button onClick={() => setShowArchitecture(false)} className="p-1 text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4 text-xs">
-              <div className="bg-[#0b0b0c] p-4 rounded-xl border border-white/10 font-mono text-[11px] leading-relaxed text-teal-300 space-y-2">
-                <p className="font-bold text-white mb-2">Architectural Flow & Separation:</p>
-                <p>1. User Request → Multi-LLM Agent (Groq / Gemini reasoning & Tool selection)</p>
-                <p>2. RAG Retrieval Service → TF-IDF & Cosine Similarity search over local guide documents</p>
-                <p>3. Weather Service → Live Open-Meteo REST API forecasts</p>
-                <p>4. Traffic & Schedule Engine → Haversine distance matrix calculations (d / speed)</p>
-                <p>5. Layer 1 (GIS Spatial Engine) → OpenStreetMap lat/lon coordinates</p>
-                <p>6. Layer 2 (Normalized Candidates) → HuggingFace (RoneyDsilva/goa-places) & Kaggle Datasets</p>
-                <p>7. 5-Factor Ranking Engine → Score = 0.25 Pref + 0.25 Weather + 0.20 Budget + 0.15 Rating + 0.15 Proximity</p>
-                <p>8. State Validation & State Commit → SQLite DB Transaction with Optimistic Concurrency versioning (trip_versions)</p>
-              </div>
-
-              <div className="p-3.5 bg-[#0b0b0c] rounded-xl border border-white/10">
-                <h4 className="font-bold text-white mb-1">Golden Recruiter Line:</h4>
-                <p className="text-slate-400 leading-normal">
-                  "The LLM handles intent understanding and tool orchestration. Deterministic business logic handles spatial calculations, constraint scoring, and auditable state mutations."
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

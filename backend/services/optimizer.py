@@ -1,5 +1,6 @@
 import sys
 import os
+import uuid
 from datetime import datetime
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -153,17 +154,93 @@ def get_right_now_recommendation(trip_id="trip_1", current_time="16:45", current
     scored.sort(key=lambda x: (x['distance_km'], -x['score']))
     return scored[:3]
 
-def generate_custom_trip(user_name="Muskan", destination="Baga, Goa", days_count=4, quietness=0.9, seafood=0.9, total_budget=15000, crowd_tolerance=0.2, energy_level="medium", start_date="2026-09-20", end_date="2026-09-24", dest_lat=None, dest_lon=None):
+
+# Standard slots used to auto-place a newly added activity on a day.
+_DAY_SLOT_TEMPLATE = ["09:30 AM", "01:00 PM", "04:30 PM", "07:30 PM"]
+
+
+def _derive_time_period(time_slot):
+    """Map a 'HH:MM AM/PM' slot to Morning/Afternoon/Evening/Night for sorting."""
+    try:
+        s = str(time_slot).strip().upper()
+        half = "PM" if "PM" in s else "AM"
+        hh = int(s.split(":")[0])
+        hour = hh if half == "AM" else (12 if hh == 12 else hh + 12)
+    except Exception:
+        return "Afternoon"
+    if hour < 12:
+        return "Morning"
+    if hour < 17:
+        return "Afternoon"
+    if hour < 21:
+        return "Evening"
+    return "Night"
+
+
+def add_place_to_itinerary(trip_id, place_id, day_number, time_slot=None):
     """
-    Dynamically generates a custom living itinerary based on total budget allocation, real-time user inputs, calendar dates & preferences.
+    Add a recommended place as a NEW activity on a specific trip day.
+    Used by the 'What to Do Right Now' Add button. When time_slot is omitted,
+    the next free standard slot for that day is auto-selected. Never raises on
+    normal validation misses — returns a structured error instead.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id FROM trips WHERE id = ?", (trip_id,))
+        if not cursor.fetchone():
+            return {"status": "ERROR", "message": "Trip not found"}
+
+        cursor.execute("SELECT id, name FROM places WHERE id = ?", (place_id,))
+        p_row = cursor.fetchone()
+        if not p_row:
+            return {"status": "ERROR", "message": f"Place {place_id} not found"}
+        place_name = p_row["name"]
+
+        if not time_slot:
+            cursor.execute(
+                "SELECT time_slot FROM itinerary_items WHERE trip_id = ? AND day_number = ? AND status != 'CANCELLED'",
+                (trip_id, day_number),
+            )
+            used = {r["time_slot"] for r in cursor.fetchall()}
+            free = next((s for s in _DAY_SLOT_TEMPLATE if s not in used), None)
+            time_slot = free or f"{(8 + len(used) * 3) % 24:02d}:00 PM"
+
+        time_period = _derive_time_period(time_slot)
+        item_id = f"item_{trip_id}_{day_number}_add_{uuid.uuid4().hex[:6]}"
+
+        cursor.execute("""
+        INSERT INTO itinerary_items (id, trip_id, day_number, time_slot, time_period, place_id, status, version)
+        VALUES (?, ?, ?, ?, ?, ?, 'ADDED_BY_AGENT', 1)
+        """, (item_id, trip_id, int(day_number), time_slot, time_period, place_id))
+
+        action_id = f"action_{uuid.uuid4().hex[:12]}"
+        cursor.execute("""
+        INSERT INTO agent_actions (id, trip_id, action, reason, tool_used, status)
+        VALUES (?, ?, 'ADD_ACTIVITY', ?, 'right_now_add', 'SUCCESS')
+        """, (action_id, trip_id, f"Added {place_name} to Day {day_number} ({time_slot})"))
+
+        conn.commit()
+        return {"status": "SUCCESS", "item_id": item_id, "place_name": place_name,
+                "day_number": int(day_number), "time_slot": time_slot, "time_period": time_period}
+    finally:
+        conn.close()
+
+def generate_custom_trip(user, destination="Baga, Goa", days_count=4, quietness=0.9, seafood=0.9, total_budget=15000, crowd_tolerance=0.2, energy_level="medium", start_date="2026-09-20", end_date="2026-09-24", dest_lat=None, dest_lon=None, existing_trip_id=None):
+    """
+    Dynamically generates a custom living itinerary for ONE authenticated user.
+    By default creates a NEW trip (uuid id) — never overwrites another user's trip.
+    Pass existing_trip_id to rebuild a trip IN PLACE (used by budget-regenerate).
     Ranks available places from DB using Proximity-First Haversine GIS distances.
     Clusters daily activities geographically so travelers don't jump 50 km between morning & evening.
     """
     conn = get_connection()
     cursor = conn.cursor()
 
-    user_id = f"user_{user_name.lower().replace(' ', '_')}"
-    trip_id = "trip_1"
+    user_id = user["id"]
+    user_name = user.get("name") or "Traveler"
+    rebuild = bool(existing_trip_id)
+    trip_id = existing_trip_id if rebuild else "trip_" + uuid.uuid4().hex[:10]
 
     # Resolve dynamic origin coordinates
     if dest_lat is not None and dest_lon is not None:
@@ -175,8 +252,7 @@ def generate_custom_trip(user_name="Muskan", destination="Baga, Goa", days_count
     daily_budget = round(total_budget / max(1, days_count), 2)
     max_activity_limit = round(daily_budget * 0.6, 2)
 
-    # 1. Update User & Preferences
-    cursor.execute("INSERT OR REPLACE INTO users (id, name, email) VALUES (?, ?, ?)", (user_id, user_name, f"{user_name.lower().replace(' ', '')}@example.com"))
+    # 1. Upsert Preferences for the authenticated user
     cursor.execute("""
     INSERT INTO preferences (user_id, quietness, seafood, budget_max, crowd_tolerance, energy_level)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -188,25 +264,24 @@ def generate_custom_trip(user_name="Muskan", destination="Baga, Goa", days_count
         energy_level = excluded.energy_level
     """, (user_id, quietness, seafood, max_activity_limit, crowd_tolerance, energy_level))
 
-    # 2. Update Trip
-    cursor.execute("""
-    INSERT INTO trips (id, user_id, destination, start_date, end_date, health_score, current_version)
-    VALUES (?, ?, ?, ?, ?, 92, 1)
-    ON CONFLICT(id) DO UPDATE SET
-        user_id = excluded.user_id,
-        destination = excluded.destination,
-        start_date = excluded.start_date,
-        end_date = excluded.end_date,
-        current_version = 1
-    """, (trip_id, user_id, destination, start_date, end_date))
-
-    # 3. Clear old items
-    cursor.execute("DELETE FROM itinerary_items WHERE trip_id = ?", (trip_id,))
+    # 2. Create a fresh trip, or clear an existing one for in-place rebuild
+    if rebuild:
+        cursor.execute("DELETE FROM itinerary_items WHERE trip_id = ?", (trip_id,))
+        cursor.execute("DELETE FROM recovery_proposals WHERE trip_id = ?", (trip_id,))
+        cursor.execute("DELETE FROM trip_versions WHERE trip_id = ?", (trip_id,))
+        cursor.execute("""
+        UPDATE trips SET destination = ?, start_date = ?, end_date = ?, current_version = 1, health_score = 92
+        WHERE id = ? AND user_id = ?
+        """, (destination, start_date, end_date, trip_id, user_id))
+    else:
+        cursor.execute("""
+        INSERT INTO trips (id, user_id, destination, start_date, end_date, health_score, current_version, status)
+        VALUES (?, ?, ?, ?, ?, 92, 1, 'ACTIVE')
+        """, (trip_id, user_id, destination, start_date, end_date))
 
     # 4. Fetch & Score All Places
     cursor.execute("SELECT * FROM places")
     all_places = [dict(r) for r in cursor.fetchall()]
-
     pref_dict = {
         "quietness": quietness,
         "seafood": seafood,
@@ -275,18 +350,12 @@ def generate_custom_trip(user_name="Muskan", destination="Baga, Goa", days_count
         available = [p for p in scored_places if p['name'].strip().lower() not in used_place_names]
         
         if not available:
-            # We ran out of places. Don't break, insert flexible time to fulfill the days.
+            # We ran out of places. Keep the day genuinely flexible instead of
+            # fabricating an item that references a non-existent place.
             cursor.execute("""
             INSERT INTO agent_actions (id, trip_id, action, reason, tool_used, status)
             VALUES (?, ?, 'TRIP_INSIGHT', ?, 'engine', 'SUCCESS')
-            """, (f"insight_flex_{day}_{int(time.time()*1000)}", trip_id, f"Candidate Discovery: Insufficient strong matches for Day {day}. Optimizer kept this day flexible with optional experiences instead of filling with weak recommendations."))
-            
-            # Just insert one flexible item for this day
-            item_id = f"item_{day}99"
-            cursor.execute("""
-            INSERT INTO itinerary_items (id, trip_id, day_number, time_slot, time_period, place_id, status, fallback_place_id, version)
-            VALUES (?, ?, ?, '10:00 AM', 'Morning', 'place_99', 'SCHEDULED', NULL, 1)
-            """, (item_id, trip_id, day))
+            """, (f"insight_flex_{day}_{int(time.time()*1000)}", trip_id, f"Candidate Discovery: Insufficient strong matches for Day {day}. This day is kept flexible for spontaneous experiences instead of filling it with weak recommendations."))
             continue
             
         day_anchor = available[0]
@@ -324,7 +393,9 @@ def generate_custom_trip(user_name="Muskan", destination="Baga, Goa", days_count
             if not selected_place:
                 break # out of places for this specific slot
 
-            item_id = f"item_{day}{item_counter}"
+            # Globally unique across trips: scope by trip_id so a new generation
+            # never collides with another trip's rows (was f"item_{day}{item_counter}").
+            item_id = f"item_{trip_id}_{day}_{item_counter}"
             fb_id = fallback_place_id if not selected_place['indoor_flag'] else None
 
             cursor.execute("""
@@ -332,8 +403,7 @@ def generate_custom_trip(user_name="Muskan", destination="Baga, Goa", days_count
             VALUES (?, ?, ?, ?, ?, ?, 'SCHEDULED', ?, 1)
             """, (item_id, trip_id, day, slot_time, slot_period, selected_place['id'], fb_id))
 
-    # 6. Log Version 1
-    cursor.execute("DELETE FROM trip_versions WHERE trip_id = ?", (trip_id,))
+    # 6. Log Version 1 with a full snapshot for rollback/audit
     cursor.execute("""
     INSERT INTO trip_versions (trip_id, version_number, change_description)
     VALUES (?, 1, ?)

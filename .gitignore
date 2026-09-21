@@ -1,0 +1,28 @@
+# ── Python ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ── Secrets / local env ────────────────────────────────
+.env
+*.env.local
+
+# ── Node / Next.js ─────────────────────────────────────
+node_modules/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# ── Logs / temp ────────────────────────────────────────
+*.log
+*.err
+npm-debug.log*
+.DS_Store
+
+# ── Local SQLite / build artifacts ─────────────────────
+backend/hiver.db
+backend/database/hiver.db

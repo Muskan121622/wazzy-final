@@ -9,6 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from database.db import get_connection
 from services.gis import haversine_distance, GOA_AREA_COORDINATES
 from services.rag_service import query_rag_knowledge
+from services.goa_brain import get_brain
 from services.weather_service import get_live_weather
 from services.optimizer import generate_custom_trip
 
@@ -121,7 +122,7 @@ TOOL_SCHEMAS = [
 # ─────────────────────────────────────────────────────────────
 # DETERMINISTIC TOOL EXECUTOR
 # ─────────────────────────────────────────────────────────────
-def execute_tool(tool_name, tool_args):
+def execute_tool(tool_name, tool_args, session_trip_id="trip_1", user=None):
     """
     Executes tool calls requested by the AI agent and returns structured outputs.
     This layer is fully deterministic — no LLM involved here.
@@ -165,7 +166,7 @@ def execute_tool(tool_name, tool_args):
         }
 
     elif tool_name == "update_itinerary":
-        trip_id = tool_args.get("trip_id", "trip_1")
+        trip_id = session_trip_id  # never trust LLM-supplied trip_id
         day_number = tool_args.get("day_number", 1)
         time_slot = tool_args.get("time_slot", "04:30 PM")
         place_id = tool_args.get("place_id", "")
@@ -200,7 +201,7 @@ def execute_tool(tool_name, tool_args):
         result = {"status": "SUCCESS", "added_place": p_name, "day": day_number, "time_slot": time_slot}
 
     elif tool_name == "remove_itinerary":
-        trip_id = tool_args.get("trip_id", "trip_1")
+        trip_id = session_trip_id  # never trust LLM-supplied trip_id
         day_number = tool_args.get("day_number", 1)
         time_slot = tool_args.get("time_slot")
 
@@ -228,13 +229,12 @@ def execute_tool(tool_name, tool_args):
         daily_budget = tool_args.get("daily_budget", 5000)
         days = tool_args.get("days", 4)
         total_b = daily_budget * days
-        trip_id_ctx = tool_args.get("trip_id", "trip_1")
+        trip_id_ctx = session_trip_id  # rebuild the SAME trip in place
 
         cursor.execute("SELECT user_id, destination FROM trips WHERE id = ?", (trip_id_ctx,))
         t_row = cursor.fetchone()
         trip_dest = t_row['destination'] if t_row and t_row['destination'] else "Goa"
-        trip_user_id = t_row['user_id'] if t_row and t_row['user_id'] else "user_guest"
-        trip_user = trip_user_id.replace("user_", "").replace("_", " ").title()
+        trip_user_id = t_row['user_id'] if t_row and t_row['user_id'] else (user or {}).get("id", "user_guest")
 
         cursor.execute("SELECT quietness, seafood FROM preferences WHERE user_id = ?", (trip_user_id,))
         p_row = cursor.fetchone()
@@ -242,20 +242,21 @@ def execute_tool(tool_name, tool_args):
         seafood_v = p_row['seafood'] if p_row else 0.5
 
         generate_custom_trip(
-            user_name=trip_user,
+            user={"id": trip_user_id, "name": (user or {}).get("name", "Traveler")},
             destination=trip_dest,
             days_count=days,
             total_budget=total_b,
             quietness=quietness_v,
-            seafood=seafood_v
+            seafood=seafood_v,
+            existing_trip_id=trip_id_ctx,
         )
         result = {"status": "SUCCESS", "daily_budget": daily_budget, "total_budget": total_b,
                   "message": f"Itinerary rebuilt for ₹{daily_budget}/day near {trip_dest}."}
 
     elif tool_name in ["ask_host_tip", "query_rag"]:
         query = tool_args.get("query", "Goa authentic tips")
-        rag_hits = query_rag_knowledge(query, top_k=3)
-        result = {"rag_hits": rag_hits}
+        hits = get_brain().search(query, top_k=3)
+        result = {"rag_hits": [{"title": h["title"], "content": h["content"]} for h in hits]}
 
     conn.close()
     return result
@@ -270,7 +271,11 @@ def _build_trip_context(trip_id, area):
         conn = get_connection()
         cur = conn.cursor()
 
-        cur.execute("SELECT * FROM preferences LIMIT 1")
+        cur.execute("""
+            SELECT p.* FROM preferences p
+            JOIN trips t ON t.user_id = p.user_id
+            WHERE t.id = ?
+        """, (trip_id,))
         pref_row = cur.fetchone()
         if pref_row:
             pref = dict(pref_row)
@@ -392,7 +397,7 @@ def _call_groq(messages, tools=None, tool_choice="auto", temperature=0.5, max_to
 # ─────────────────────────────────────────────────────────────
 # MAIN AGENT — Agentic Tool-Calling Loop
 # ─────────────────────────────────────────────────────────────
-def run_agent_chat(user_message, trip_id="trip_1", destination=None, history=None):
+def run_agent_chat(user_message, trip_id="trip_1", destination=None, history=None, user=None):
     """
     Production-grade agentic loop using Groq native Tool Calling.
     
@@ -417,9 +422,11 @@ def run_agent_chat(user_message, trip_id="trip_1", destination=None, history=Non
     except Exception:
         pass
 
-    # ── RAG background knowledge ─────────────────────────────
-    rag_hits = query_rag_knowledge(user_message, top_k=2)
-    rag_str = "\n".join([f"- {h.get('title','')}: {h.get('content','')}" for h in rag_hits])
+    # ── Goa Brain retrieval (token-optimized RAG) ────────────
+    # Instead of dumping the whole places table + knowledge file into the prompt,
+    # retrieve ONLY the top-k relevant, budgeted snippets for THIS message.
+    brain_str = get_brain().context_block(user_message, top_k=3, max_chars=700)
+    rag_hits = [{"title": "GoaBrain", "content": brain_str}] if brain_str else []
 
     # ── Build trip context ───────────────────────────────────
     trip_context = _build_trip_context(trip_id, area)
@@ -440,7 +447,7 @@ def run_agent_chat(user_message, trip_id="trip_1", destination=None, history=Non
         "6. Be warm, concise, use emojis naturally.\n\n"
         f"[TRIP CONTEXT]\n{trip_context[:2000]}\n\n"
         + (f"{search_memory}\n\n" if search_memory else "")
-        + f"[LOCAL KNOWLEDGE]\n{rag_str[:400]}"
+        + f"[GOA BRAIN — verified local matches for this request]\n{brain_str or 'None retrieved; call a tool.'}"
     )
 
 
@@ -473,7 +480,7 @@ def run_agent_chat(user_message, trip_id="trip_1", destination=None, history=Non
                 tool_args = {}
 
             print(f"[AGENT] Calling tool: {tool_executed}({tool_args})")
-            tool_result = execute_tool(tool_executed, tool_args)
+            tool_result = execute_tool(tool_executed, tool_args, session_trip_id=trip_id, user=user)
             print(f"[AGENT] Tool result: {str(tool_result)[:200]}")
 
             # Save search results to DB so next turn knows what option 1/2/3 are

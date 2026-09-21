@@ -3,3 +3,13 @@ uvicorn>=0.22.0
 pydantic>=2.0.0
 requests>=2.31.0
 python-dotenv>=1.0.0
+
+# Proactive background watcher (live weather + closing-hours sweeps)
+apscheduler>=3.10.0
+
+# PostgreSQL / Neon driver — used only when DATABASE_URL is set, else SQLite fallback
+psycopg2-binary>=2.9.9
+
+# OPTIONAL: only needed to ingest goa.pbf via data/extract_pbf.py
+# (system libosmium + wheel; skip if it won't build on your platform)
+# osmium>=3.6.0
